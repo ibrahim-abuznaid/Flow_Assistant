@@ -1,0 +1,56 @@
+# ============================================================================
+# Systemd Service File for ActivePieces AI Assistant Frontend
+# ============================================================================
+# Location: /etc/systemd/system/activepieces-frontend.service
+#
+# Prerequisites:
+# - Frontend must be built: cd frontend && npm run build
+# - Install serve: sudo npm install -g serve
+#
+# To install:
+# 1. sudo cp systemd/activepieces-frontend.service /etc/systemd/system/
+# 2. sudo systemctl daemon-reload
+# 3. sudo systemctl enable activepieces-frontend
+# 4. sudo systemctl start activepieces-frontend
+#
+# To check status:
+# sudo systemctl status activepieces-frontend
+#
+# To view logs:
+# sudo journalctl -u activepieces-frontend -f
+# ============================================================================
+
+[Unit]
+Description=ActivePieces AI Assistant Frontend (React)
+Documentation=https://github.com/yourusername/Flow_Assistant
+After=network.target
+Requires=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/activepieces-assistant/frontend
+
+# Start command - using serve to host the built React app
+ExecStart=/usr/bin/serve -s dist -l 5173
+
+# Restart policy
+Restart=always
+RestartSec=10
+
+# Resource limits
+MemoryMax=512M
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=activepieces-frontend
+
+[Install]
+WantedBy=multi-user.target
+

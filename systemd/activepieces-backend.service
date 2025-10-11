@@ -1,0 +1,69 @@
+# ============================================================================
+# Systemd Service File for ActivePieces AI Assistant Backend
+# ============================================================================
+# Location: /etc/systemd/system/activepieces-backend.service
+#
+# To install:
+# 1. sudo cp systemd/activepieces-backend.service /etc/systemd/system/
+# 2. sudo systemctl daemon-reload
+# 3. sudo systemctl enable activepieces-backend
+# 4. sudo systemctl start activepieces-backend
+#
+# To check status:
+# sudo systemctl status activepieces-backend
+#
+# To view logs:
+# sudo journalctl -u activepieces-backend -f
+# ============================================================================
+
+[Unit]
+Description=ActivePieces AI Assistant Backend (FastAPI)
+Documentation=https://github.com/yourusername/Flow_Assistant
+After=network.target postgresql.service
+Requires=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/activepieces-assistant
+
+# Environment
+Environment="PATH=/opt/activepieces-assistant/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+
+# Start command - using uvicorn
+ExecStart=/opt/activepieces-assistant/venv/bin/uvicorn main:app \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --log-level info
+
+# Alternative: Using Gunicorn for better performance (uncomment to use)
+# ExecStart=/opt/activepieces-assistant/venv/bin/gunicorn main:app \
+#     -w 4 \
+#     -k uvicorn.workers.UvicornWorker \
+#     --bind 0.0.0.0:8000 \
+#     --log-level info \
+#     --access-logfile - \
+#     --error-logfile -
+
+# Restart policy
+Restart=always
+RestartSec=10
+
+# Resource limits
+MemoryMax=2G
+CPUQuota=150%
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=activepieces-backend
+
+[Install]
+WantedBy=multi-user.target
+
