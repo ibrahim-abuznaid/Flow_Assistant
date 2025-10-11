@@ -13,6 +13,7 @@ function App() {
   const [currentStatus, setCurrentStatus] = useState(null)
   const messagesEndRef = useRef(null)
   const eventSourceRef = useRef(null)
+  const abortControllerRef = useRef(null)
 
   // Scroll to bottom when messages change
   const scrollToBottom = () => {
@@ -37,6 +38,19 @@ function App() {
     }
   }
 
+  const stopGeneration = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+      abortControllerRef.current = null
+      setIsLoading(false)
+      setCurrentStatus(null)
+      setMessages(prev => [...prev, { 
+        sender: 'assistant', 
+        text: '⏸️ Generation stopped by user.' 
+      }])
+    }
+  }
+
   const sendMessage = async () => {
     if (!currentInput.trim() || isLoading) return
 
@@ -48,6 +62,9 @@ function App() {
     setIsLoading(true)
     setCurrentStatus('🚀 Starting...')
 
+    // Create new AbortController for this request
+    abortControllerRef.current = new AbortController()
+
     try {
       // Use EventSource for streaming
       const response = await fetch(`${API_BASE_URL}/chat/stream`, {
@@ -56,6 +73,7 @@ function App() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ message: userMessage }),
+        signal: abortControllerRef.current.signal
       })
 
       const reader = response.body.getReader()
@@ -95,6 +113,12 @@ function App() {
         }
       }
     } catch (error) {
+      // Check if it was aborted by user
+      if (error.name === 'AbortError') {
+        console.log('Request aborted by user')
+        return // Don't show error message, stopGeneration already handled it
+      }
+
       console.error('Error sending message:', error)
       
       let errorMessage = 'Sorry, there was an error processing your request.'
@@ -110,6 +134,7 @@ function App() {
       setCurrentStatus(null)
     } finally {
       setIsLoading(false)
+      abortControllerRef.current = null
     }
   }
 
@@ -190,6 +215,13 @@ function App() {
                     <div className="pulse-dot"></div>
                   </div>
                   <div className="status-text">{currentStatus}</div>
+                  <button 
+                    onClick={stopGeneration} 
+                    className="stop-btn"
+                    title="Stop generation"
+                  >
+                    ⏹️ Stop
+                  </button>
                 </div>
               )}
               <div className="message assistant">

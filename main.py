@@ -13,7 +13,7 @@ from queue import Queue
 from threading import Thread
 from typing import Any, Dict
 
-from agent import get_agent
+from agent import get_agent, run_agent_with_planning
 from memory import log_interaction, clear_history
 
 # Load environment variables
@@ -66,15 +66,30 @@ class HealthResponse(BaseModel):
 
 # Custom callback handler for tracking agent status
 from langchain.callbacks.base import BaseCallbackHandler
+from threading import Event
+
+class CancellationException(Exception):
+    """Exception raised when request is cancelled."""
+    pass
 
 class StatusCallbackHandler(BaseCallbackHandler):
     """Callback handler that tracks agent status and emits updates."""
     
-    def __init__(self, status_queue: Queue):
+    def __init__(self, status_queue: Queue, cancellation_event: Event):
         self.status_queue = status_queue
+        self.cancellation_event = cancellation_event
+    
+    def _check_cancellation(self):
+        """Check if the request has been cancelled and raise exception if so."""
+        if self.cancellation_event.is_set():
+            print("⚠️  Agent execution cancelled by client")
+            raise CancellationException("Request cancelled by client")
     
     def on_agent_action(self, action: Any, **kwargs) -> None:
         """Called when agent takes an action (uses a tool)."""
+        # Check for cancellation before tool execution
+        self._check_cancellation()
+        
         tool_name = action.tool
         tool_input = action.tool_input
         
@@ -88,9 +103,21 @@ class StatusCallbackHandler(BaseCallbackHandler):
         status = status_messages.get(tool_name, f"⚙️ Using {tool_name}...")
         self.status_queue.put({"type": "status", "message": status, "tool": tool_name})
     
+    def on_tool_start(self, serialized: Dict[str, Any], input_str: str, **kwargs) -> None:
+        """Called when tool starts."""
+        # Check for cancellation before tool starts
+        self._check_cancellation()
+    
     def on_tool_end(self, output: str, **kwargs) -> None:
         """Called when a tool finishes."""
+        # Check for cancellation after tool execution
+        self._check_cancellation()
         self.status_queue.put({"type": "status", "message": "💭 Thinking...", "tool": None})
+    
+    def on_llm_start(self, serialized: Dict[str, Any], prompts: list[str], **kwargs) -> None:
+        """Called when LLM starts."""
+        # Check for cancellation before LLM call
+        self._check_cancellation()
     
     def on_agent_finish(self, finish: Any, **kwargs) -> None:
         """Called when agent finishes."""
@@ -149,18 +176,18 @@ async def chat(request: ChatRequest):
         # Get the agent
         agent = get_agent()
         
-        # Run the agent
+        # Run the agent with planning layer
         print(f"\n{'='*60}")
         print(f"User: {user_message}")
         print(f"{'='*60}")
         
-        result = agent.invoke({"input": user_message})
+        result = run_agent_with_planning(user_message, agent)
         assistant_reply = result.get("output", "I apologize, but I couldn't generate a response.")
         
         print(f"\nAssistant: {assistant_reply}")
         print(f"{'='*60}\n")
         
-        # Log the interaction
+        # Log the interaction (with original query, not enhanced)
         log_interaction(user_message, assistant_reply)
         
         return {"reply": assistant_reply}
@@ -184,27 +211,38 @@ async def chat_stream(request: ChatRequest):
     user_message = request.message.strip()
     
     async def event_generator():
+        from threading import Event
+        
         status_queue = Queue()
         result_container = {"output": None, "error": None}
+        cancellation_event = Event()  # Used to signal cancellation to agent
         
         def run_agent():
             try:
                 # Get the agent
                 agent = get_agent()
                 
-                # Create callback handler
-                callback = StatusCallbackHandler(status_queue)
+                # Create callback handler with cancellation support
+                callback = StatusCallbackHandler(status_queue, cancellation_event)
                 
                 # Send initial status
                 status_queue.put({"type": "status", "message": "🚀 Starting...", "tool": None})
                 
-                # Run the agent with callback
+                # Add planning status
+                status_queue.put({"type": "status", "message": "🧠 Planning query execution...", "tool": None})
+                
+                # Run the agent with planning layer
                 print(f"\n{'='*60}")
                 print(f"User: {user_message}")
                 print(f"{'='*60}")
                 
+                # Import planner for guided input
+                from planner import create_guided_input
+                guided_input = create_guided_input(user_message)
+                
+                # Execute agent with enhanced input and callbacks
                 result = agent.invoke(
-                    {"input": user_message},
+                    {"input": guided_input["enhanced_input"]},
                     config={"callbacks": [callback]}
                 )
                 
@@ -214,31 +252,50 @@ async def chat_stream(request: ChatRequest):
                 print(f"\nAssistant: {assistant_reply}")
                 print(f"{'='*60}\n")
                 
-                # Log the interaction
+                # Log the interaction (with original query)
                 log_interaction(user_message, assistant_reply)
                 
                 # Signal completion
                 status_queue.put({"type": "done", "reply": assistant_reply})
                 
+            except CancellationException:
+                # Request was cancelled - don't log as error
+                print(f"✓ Agent execution stopped successfully")
+                status_queue.put({"type": "cancelled", "message": "Request cancelled"})
+                
             except Exception as e:
-                print(f"\n❌ Error: {str(e)}\n")
-                result_container["error"] = str(e)
-                status_queue.put({"type": "error", "message": str(e)})
+                # Check if it's a cancellation-related error
+                if "cancel" in str(e).lower() or cancellation_event.is_set():
+                    print(f"✓ Agent execution stopped successfully")
+                    status_queue.put({"type": "cancelled", "message": "Request cancelled"})
+                else:
+                    print(f"\n❌ Error: {str(e)}\n")
+                    result_container["error"] = str(e)
+                    status_queue.put({"type": "error", "message": str(e)})
         
         # Start agent in background thread
-        agent_thread = Thread(target=run_agent)
+        agent_thread = Thread(target=run_agent, daemon=True)
         agent_thread.start()
         
         # Stream status updates
         try:
+            client_disconnected = False
             while True:
                 # Check if there are updates
                 if not status_queue.empty():
                     update = status_queue.get()
-                    yield f"data: {json.dumps(update)}\n\n"
                     
-                    # Break if done or error
-                    if update["type"] in ["done", "error"]:
+                    try:
+                        yield f"data: {json.dumps(update)}\n\n"
+                    except (GeneratorExit, StopAsyncIteration):
+                        # Client disconnected - signal cancellation
+                        print("🛑 Client disconnected - cancelling agent execution")
+                        cancellation_event.set()
+                        client_disconnected = True
+                        break
+                    
+                    # Break if done, error, or cancelled
+                    if update["type"] in ["done", "error", "cancelled"]:
                         break
                 else:
                     # Small delay to prevent busy waiting
@@ -247,10 +304,29 @@ async def chat_stream(request: ChatRequest):
                     # Check if thread is still alive
                     if not agent_thread.is_alive() and status_queue.empty():
                         break
+            
+            if client_disconnected:
+                print("⏳ Waiting for agent thread to stop...")
+                agent_thread.join(timeout=2)  # Wait up to 2 seconds
+                if agent_thread.is_alive():
+                    print("⚠️  Agent thread still running after cancellation")
+                else:
+                    print("✓ Agent thread stopped successfully")
+        
+        except GeneratorExit:
+            # Client disconnected - signal cancellation
+            print("🛑 Client disconnected (GeneratorExit) - cancelling agent execution")
+            cancellation_event.set()
+            agent_thread.join(timeout=2)
         
         finally:
-            # Wait for thread to complete
-            agent_thread.join(timeout=1)
+            # Ensure cancellation is signaled
+            if not cancellation_event.is_set():
+                cancellation_event.set()
+            
+            # Give thread a moment to stop
+            if agent_thread.is_alive():
+                agent_thread.join(timeout=1)
     
     return StreamingResponse(
         event_generator(),

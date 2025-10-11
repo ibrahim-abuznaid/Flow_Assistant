@@ -230,8 +230,14 @@ def check_activepieces(query: str) -> str:
     """
     query = query.strip()
     
-    # Try to find as a piece
-    piece = find_piece_by_name(query)
+    # Try to find as a piece (with error handling)
+    try:
+        piece = find_piece_by_name(query)
+    except Exception as e:
+        return f"⚠️ Database connection failed. Unable to verify if '{query}' exists in ActivePieces.\n\n" \
+               f"Fallback: Please check the ActivePieces web UI directly at your ActivePieces instance.\n" \
+               f"Most common integrations include: Gmail, Slack, Google Drive, Google Sheets, Discord, Telegram, HTTP Request, Webhooks, Email, and 400+ more."
+    
     if piece:
         piece_name = piece.get("displayName", "")
         description = piece.get("description", "")

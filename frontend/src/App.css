@@ -223,6 +223,7 @@ body {
   border-radius: 12px;
   animation: slideInLeft 0.3s ease-out, pulse 2s ease-in-out infinite;
   box-shadow: 0 2px 8px rgba(102, 126, 234, 0.15);
+  position: relative;
 }
 
 .status-icon {
@@ -285,11 +286,48 @@ body {
 }
 
 .status-text {
+  flex: 1;
   font-size: 0.95rem;
   font-weight: 600;
   color: #667eea;
   letter-spacing: 0.3px;
   animation: fadeIn 0.3s ease-in;
+}
+
+/* Stop Button Styles */
+.stop-btn {
+  background: linear-gradient(135deg, #ff4757 0%, #ff6348 100%);
+  color: white;
+  border: none;
+  padding: 0.5rem 1.2rem;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 700;
+  font-family: inherit;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 6px rgba(255, 71, 87, 0.3);
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
+  margin-left: auto;
+}
+
+.stop-btn:hover {
+  background: linear-gradient(135deg, #ee5a6f 0%, #ff7979 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(255, 71, 87, 0.5);
+}
+
+.stop-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(255, 71, 87, 0.3);
+}
+
+.stop-btn:focus {
+  outline: 2px solid #ff4757;
+  outline-offset: 2px;
 }
 
 .input-area {
@@ -411,6 +449,11 @@ body {
 
   .status-text {
     font-size: 0.85rem;
+  }
+
+  .stop-btn {
+    padding: 0.4rem 0.9rem;
+    font-size: 0.8rem;
   }
 }
 

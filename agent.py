@@ -6,6 +6,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from llm_config import get_llm
 from memory import create_memory
 from tools import ALL_TOOLS
+from planner import create_guided_input
 
 
 # System prompt for the agent
@@ -22,6 +23,13 @@ You have access to these tools:
 - **search_activepieces_docs**: Use this to find detailed information including INPUT PROPERTIES, types, requirements, and options
 - **web_search**: Use this for general questions or information not in the ActivePieces knowledge base
 
+CRITICAL EFFICIENCY RULES:
+⚠️ You will receive a PLANNING GUIDE with your query. FOLLOW IT EXACTLY.
+⚠️ The plan specifies MAX TOOL CALLS and STOPPING CONDITIONS. DO NOT EXCEED THEM.
+⚠️ If a tool fails, use the FALLBACK STRATEGY immediately. Do NOT retry endlessly.
+⚠️ "Good enough" information is better than perfect information that takes 20 tool calls.
+⚠️ When you hit the stopping condition, RESPOND IMMEDIATELY with what you have.
+
 IMPORTANT GUIDELINES FOR PROVIDING COMPLETE INFORMATION:
 - When explaining how to use an action or trigger, ALWAYS include:
   * The action/trigger name and description
@@ -32,11 +40,11 @@ IMPORTANT GUIDELINES FOR PROVIDING COMPLETE INFORMATION:
   * Default values if any
   * Property descriptions to explain what each input does
 
-- Always use search_activepieces_docs to get complete property information before responding
+- Use search_activepieces_docs to get complete property information before responding
 - When creating a plan or instructions, list ALL inputs the user needs to configure
 - Be specific about data types and validation requirements
 - Provide examples of valid input values when helpful
-- If the knowledge base doesn't have complete info, say so explicitly
+- If the knowledge base doesn't have complete info, say so explicitly and MOVE ON
 
 Remember: You have access to a comprehensive database with:
 - 433 pieces (integrations)
@@ -44,7 +52,7 @@ Remember: You have access to a comprehensive database with:
 - 694 triggers
 - 10,118 input properties with full details
 
-Your responses should give users EVERYTHING they need to successfully configure their workflows without guessing."""
+EFFICIENCY OVER PERFECTION: Provide the best answer with the information you gather within the allowed tool calls. Don't chase completeness if it means exceeding limits."""
 
 
 def create_agent() -> AgentExecutor:
@@ -72,14 +80,16 @@ def create_agent() -> AgentExecutor:
         prompt=prompt
     )
     
-    # Create agent executor
+    # Create agent executor with stricter limits
     agent_executor = AgentExecutor(
         agent=agent,
         tools=ALL_TOOLS,
         memory=memory,
         verbose=True,
         handle_parsing_errors=True,
-        max_iterations=20,  # Increased to allow comprehensive responses with full property details
+        max_iterations=10,  # Reduced from 30 - planning layer should prevent needing more
+        max_execution_time=60,  # 60 second timeout
+        early_stopping_method="force",  # Force stop when hitting limit
         return_intermediate_steps=False
     )
     
@@ -98,4 +108,29 @@ def get_agent() -> AgentExecutor:
     if _agent is None:
         _agent = create_agent()
     return _agent
+
+
+def run_agent_with_planning(user_query: str, agent_executor: AgentExecutor) -> dict:
+    """
+    Run the agent with planning layer.
+    
+    Args:
+        user_query: The user's input query
+        agent_executor: The agent executor instance
+        
+    Returns:
+        Dictionary with agent output and planning metadata
+    """
+    # Step 1: Planning layer - analyze query and create execution plan
+    guided_input = create_guided_input(user_query)
+    
+    # Step 2: Execute agent with the enhanced input
+    result = agent_executor.invoke({"input": guided_input["enhanced_input"]})
+    
+    # Step 3: Return result with planning metadata
+    return {
+        "output": result.get("output", ""),
+        "plan": guided_input["plan"],
+        "original_query": guided_input["original_query"]
+    }
 

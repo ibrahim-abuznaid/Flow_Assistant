@@ -26,11 +26,12 @@ def get_connection():
     try:
         conn = psycopg.connect(
             **DB_CONFIG,
-            row_factory=dict_row
+            row_factory=dict_row,
+            connect_timeout=5  # 5 second timeout instead of hanging
         )
         return conn
     except psycopg.Error as e:
-        print(f"Error connecting to database: {e}")
+        print(f"⚠️  Database connection failed: {e}")
         raise
 
 

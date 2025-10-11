@@ -4,6 +4,8 @@
 
 The Flow Assistant now includes a **beautiful real-time status indicator** that shows users exactly what the AI agent is doing while processing their queries. This provides transparency and improves user experience by keeping users informed during longer processing times.
 
+**NEW:** Users can now **stop/cancel** the agent generation at any time with a single click!
+
 ## Features
 
 ### Visual Status Indicator
@@ -11,6 +13,7 @@ The Flow Assistant now includes a **beautiful real-time status indicator** that 
 - **Smooth transitions** between different status messages
 - **Color-coded styling** matching the app's theme
 - **Responsive design** that works on all devices
+- **Stop button** integrated into the status bar for easy cancellation
 
 ### Status Messages
 
@@ -186,6 +189,82 @@ while (true) {
 - **Non-blocking**: UI remains responsive during processing
 - **Efficient**: Only sends updates when status changes
 
+## Stop/Cancel Functionality
+
+### How to Stop Generation
+
+Users can **stop the agent at any time** by clicking the red **⏹️ Stop** button that appears in the status indicator during processing.
+
+### What Happens When You Stop
+
+1. **Frontend:** The fetch request is **immediately cancelled** via AbortController
+2. **Backend:** Detects client disconnect and signals the agent to stop
+3. **Agent:** Stops execution at the next checkpoint (before LLM/tool calls)
+4. **Result:** Status indicator disappears, message shows "⏸️ Generation stopped by user."
+5. **Ready:** Agent is immediately ready to accept new queries
+
+**Important:** The backend actually stops the agent execution, preventing wasted API credits! 💰
+
+### Technical Implementation
+
+#### AbortController API
+- Uses browser's native `AbortController` to cancel fetch requests
+- Clean cancellation without memory leaks
+- Signal passed to fetch request for proper cleanup
+
+```javascript
+// Create abort controller
+abortControllerRef.current = new AbortController()
+
+// Pass signal to fetch
+fetch(url, {
+  signal: abortControllerRef.current.signal
+})
+
+// Cancel when stop button clicked
+abortControllerRef.current.abort()
+```
+
+#### Error Handling
+- Catches `AbortError` to distinguish user cancellation from actual errors
+- Prevents showing error messages for intentional stops
+- Cleans up state properly
+
+```javascript
+catch (error) {
+  if (error.name === 'AbortError') {
+    // User stopped it - already handled
+    return
+  }
+  // Handle actual errors
+}
+```
+
+### Stop Button Design
+
+- **Red gradient** (`#ff4757` to `#ff6348`) for high visibility
+- **Positioned on the right** side of status indicator
+- **Hover effect** with lift animation
+- **Active state** with press animation
+- **Accessible** with keyboard focus outline
+- **Responsive** sizing for mobile devices
+
+### Backend Cancellation
+
+The agent stops execution on the backend through:
+
+1. **Cancellation Event** - Threading.Event shared between SSE generator and agent thread
+2. **Disconnect Detection** - Catches GeneratorExit when client aborts
+3. **Callback Checkpoints** - Custom callback checks for cancellation at multiple points:
+   - Before each tool execution
+   - Before each LLM call
+   - After each tool completes
+4. **Exception Handling** - Raises CancellationException to stop agent gracefully
+
+**Result:** No wasted API calls to OpenAI, Perplexity, or other services!
+
+See `STOP_FUNCTIONALITY_GUIDE.md` for complete technical details.
+
 ## Future Enhancements
 
 Possible improvements for future versions:
@@ -196,6 +275,7 @@ Possible improvements for future versions:
 4. **Custom status icons** for different tool types
 5. **Time estimates** based on typical tool execution times
 6. **Detailed tool results** (optional debug mode)
+7. **Keyboard shortcut** (Esc key) to stop generation
 
 ## Code Files Modified
 
