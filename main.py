@@ -3,9 +3,15 @@ FastAPI backend for the AI Assistant.
 """
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import os
+import json
+import asyncio
+from queue import Queue
+from threading import Thread
+from typing import Any, Dict
 
 from agent import get_agent
 from memory import log_interaction, clear_history
@@ -56,6 +62,39 @@ class ErrorResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     message: str
+
+
+# Custom callback handler for tracking agent status
+from langchain.callbacks.base import BaseCallbackHandler
+
+class StatusCallbackHandler(BaseCallbackHandler):
+    """Callback handler that tracks agent status and emits updates."""
+    
+    def __init__(self, status_queue: Queue):
+        self.status_queue = status_queue
+    
+    def on_agent_action(self, action: Any, **kwargs) -> None:
+        """Called when agent takes an action (uses a tool)."""
+        tool_name = action.tool
+        tool_input = action.tool_input
+        
+        # Map tool names to friendly status messages
+        status_messages = {
+            "check_activepieces": "🔍 Checking ActivePieces database...",
+            "search_activepieces_docs": "📚 Searching knowledge base...",
+            "web_search": "🌐 Searching the web..."
+        }
+        
+        status = status_messages.get(tool_name, f"⚙️ Using {tool_name}...")
+        self.status_queue.put({"type": "status", "message": status, "tool": tool_name})
+    
+    def on_tool_end(self, output: str, **kwargs) -> None:
+        """Called when a tool finishes."""
+        self.status_queue.put({"type": "status", "message": "💭 Thinking...", "tool": None})
+    
+    def on_agent_finish(self, finish: Any, **kwargs) -> None:
+        """Called when agent finishes."""
+        self.status_queue.put({"type": "status", "message": "✨ Finalizing response...", "tool": None})
 
 
 @app.on_event("startup")
@@ -132,6 +171,95 @@ async def chat(request: ChatRequest):
             status_code=500,
             detail=f"An error occurred while processing your request: {str(e)}"
         )
+
+
+@app.post("/chat/stream")
+async def chat_stream(request: ChatRequest):
+    """
+    Streaming chat endpoint. Accepts a user message and streams status updates and response.
+    """
+    if not request.message or not request.message.strip():
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+    
+    user_message = request.message.strip()
+    
+    async def event_generator():
+        status_queue = Queue()
+        result_container = {"output": None, "error": None}
+        
+        def run_agent():
+            try:
+                # Get the agent
+                agent = get_agent()
+                
+                # Create callback handler
+                callback = StatusCallbackHandler(status_queue)
+                
+                # Send initial status
+                status_queue.put({"type": "status", "message": "🚀 Starting...", "tool": None})
+                
+                # Run the agent with callback
+                print(f"\n{'='*60}")
+                print(f"User: {user_message}")
+                print(f"{'='*60}")
+                
+                result = agent.invoke(
+                    {"input": user_message},
+                    config={"callbacks": [callback]}
+                )
+                
+                assistant_reply = result.get("output", "I apologize, but I couldn't generate a response.")
+                result_container["output"] = assistant_reply
+                
+                print(f"\nAssistant: {assistant_reply}")
+                print(f"{'='*60}\n")
+                
+                # Log the interaction
+                log_interaction(user_message, assistant_reply)
+                
+                # Signal completion
+                status_queue.put({"type": "done", "reply": assistant_reply})
+                
+            except Exception as e:
+                print(f"\n❌ Error: {str(e)}\n")
+                result_container["error"] = str(e)
+                status_queue.put({"type": "error", "message": str(e)})
+        
+        # Start agent in background thread
+        agent_thread = Thread(target=run_agent)
+        agent_thread.start()
+        
+        # Stream status updates
+        try:
+            while True:
+                # Check if there are updates
+                if not status_queue.empty():
+                    update = status_queue.get()
+                    yield f"data: {json.dumps(update)}\n\n"
+                    
+                    # Break if done or error
+                    if update["type"] in ["done", "error"]:
+                        break
+                else:
+                    # Small delay to prevent busy waiting
+                    await asyncio.sleep(0.1)
+                    
+                    # Check if thread is still alive
+                    if not agent_thread.is_alive() and status_queue.empty():
+                        break
+        
+        finally:
+            # Wait for thread to complete
+            agent_thread.join(timeout=1)
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        }
+    )
 
 
 @app.post("/reset")

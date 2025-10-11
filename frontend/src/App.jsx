@@ -10,7 +10,9 @@ function App() {
   const [currentInput, setCurrentInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [stats, setStats] = useState(null)
+  const [currentStatus, setCurrentStatus] = useState(null)
   const messagesEndRef = useRef(null)
+  const eventSourceRef = useRef(null)
 
   // Scroll to bottom when messages change
   const scrollToBottom = () => {
@@ -44,25 +46,60 @@ function App() {
     setMessages(prev => [...prev, { sender: 'user', text: userMessage }])
     setCurrentInput('')
     setIsLoading(true)
+    setCurrentStatus('🚀 Starting...')
 
     try {
-      const response = await axios.post(`${API_BASE_URL}/chat`, {
-        message: userMessage
+      // Use EventSource for streaming
+      const response = await fetch(`${API_BASE_URL}/chat/stream`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ message: userMessage }),
       })
 
-      // Add assistant response
-      setMessages(prev => [...prev, { 
-        sender: 'assistant', 
-        text: response.data.reply 
-      }])
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+
+        const chunk = decoder.decode(value)
+        const lines = chunk.split('\n')
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              
+              if (data.type === 'status') {
+                setCurrentStatus(data.message)
+              } else if (data.type === 'done') {
+                setCurrentStatus(null)
+                setMessages(prev => [...prev, { 
+                  sender: 'assistant', 
+                  text: data.reply 
+                }])
+              } else if (data.type === 'error') {
+                setCurrentStatus(null)
+                setMessages(prev => [...prev, { 
+                  sender: 'assistant', 
+                  text: `Error: ${data.message}` 
+                }])
+              }
+            } catch (e) {
+              console.error('Error parsing SSE data:', e)
+            }
+          }
+        }
+      }
     } catch (error) {
       console.error('Error sending message:', error)
       
       let errorMessage = 'Sorry, there was an error processing your request.'
       
-      if (error.response?.data?.detail) {
-        errorMessage = error.response.data.detail
-      } else if (error.message) {
+      if (error.message) {
         errorMessage = `Error: ${error.message}`
       }
 
@@ -70,6 +107,7 @@ function App() {
         sender: 'assistant', 
         text: errorMessage 
       }])
+      setCurrentStatus(null)
     } finally {
       setIsLoading(false)
     }
@@ -144,16 +182,27 @@ function App() {
           ))}
 
           {isLoading && (
-            <div className="message assistant">
-              <div className="message-avatar">🤖</div>
-              <div className="message-content">
-                <div className="typing-indicator">
-                  <span></span>
-                  <span></span>
-                  <span></span>
+            <>
+              {currentStatus && (
+                <div className="status-indicator">
+                  <div className="status-icon">
+                    <div className="pulse-ring"></div>
+                    <div className="pulse-dot"></div>
+                  </div>
+                  <div className="status-text">{currentStatus}</div>
+                </div>
+              )}
+              <div className="message assistant">
+                <div className="message-avatar">🤖</div>
+                <div className="message-content">
+                  <div className="typing-indicator">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                  </div>
                 </div>
               </div>
-            </div>
+            </>
           )}
 
           <div ref={messagesEndRef} />
