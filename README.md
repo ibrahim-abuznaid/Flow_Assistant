@@ -8,6 +8,7 @@ An intelligent assistant that helps users work with ActivePieces (workflow autom
 
 **Deployment Guides:**
 - 📑 **[Deployment Index](docs/deployment/DEPLOYMENT_INDEX.md)** ⭐ - Start here! Choose your deployment path
+- 🐙 **[Deploy from GitHub](docs/deployment/GITHUB_CLONE_DEPLOY.md)** - Clone repo and deploy (30 min)
 - 🚀 **[Quick Deploy](docs/deployment/QUICK_DEPLOY.md)** - TL;DR deployment (3 commands!)
 - 📦 **[Complete Guide](docs/deployment/DEPLOYMENT_GUIDE.md)** - Full step-by-step guide (30 min)
 - 📋 **[Deployment Summary](docs/deployment/DEPLOYMENT_SUMMARY.md)** - What's included in deployment
@@ -321,14 +322,18 @@ For deploying to a production Ubuntu server (DigitalOcean, AWS, etc.):
 
 **Quick Deploy Options**:
 
-1. **Automated** (One command):
+1. **From GitHub** (Recommended - 30 minutes):
+   - **[DEPLOY_FROM_GITHUB.md](DEPLOY_FROM_GITHUB.md)** 👈 **Copy-paste commands!**
+   - Clone your repo and deploy step-by-step
+   - All commands ready to copy
+
+2. **Automated** (One command):
    ```bash
    curl -fsSL https://raw.githubusercontent.com/yourusername/Flow_Assistant/main/scripts/deployment/deploy_digitalocean.sh | sudo bash
    ```
 
-2. **Manual** (30 minutes):
-   - See **[Quick Deploy Guide](docs/deployment/QUICK_DEPLOY.md)** for TL;DR version
-   - Or **[Complete Deployment Guide](docs/deployment/DEPLOYMENT_GUIDE.md)** for detailed walkthrough
+3. **Detailed Manual**:
+   - See **[Complete Deployment Guide](docs/deployment/DEPLOYMENT_GUIDE.md)** for full walkthrough
 
 ### GitHub Repository Setup
 

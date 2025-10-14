@@ -38,6 +38,10 @@ This guide will walk you through deploying the complete application on a fresh D
    - Make sure you can SSH into your droplet
    - `ssh root@your_droplet_ip`
 
+5. **GitHub Repository**
+   - Your Flow_Assistant repository is on GitHub
+   - You have the repository URL
+
 ---
 
 ## 🚀 Step-by-Step Deployment
@@ -82,15 +86,30 @@ nginx -v
 mkdir -p /opt/activepieces-assistant
 cd /opt/activepieces-assistant
 
-# Clone your repository
-git clone https://github.com/yourusername/Flow_Assistant.git .
+# Clone your repository from GitHub
+git clone https://github.com/YOUR_USERNAME/Flow_Assistant.git .
 
-# If repository is private, use SSH or provide credentials
+# Replace YOUR_USERNAME with your GitHub username
+# For example: git clone https://github.com/john/Flow_Assistant.git .
+```
+
+**Note**: The `.` at the end clones into the current directory instead of creating a new subdirectory.
+
+If your repository is private, you'll need to authenticate:
+```bash
+# Option 1: Use personal access token (recommended)
+git clone https://YOUR_TOKEN@github.com/YOUR_USERNAME/Flow_Assistant.git .
+
+# Option 2: SSH (if you have SSH keys set up)
+git clone git@github.com:YOUR_USERNAME/Flow_Assistant.git .
 ```
 
 ### Step 4: Setup Python Backend (5 minutes)
 
 ```bash
+# Make sure you're in the app directory
+cd /opt/activepieces-assistant
+
 # Create virtual environment
 python3 -m venv venv
 
@@ -892,91 +911,6 @@ crontab -e
 0 2 * * * /opt/activepieces-assistant/backup.sh >> /var/log/activepieces-backup.log 2>&1
 ```
 
-### 5. Monitor Logs
-
-Setup log rotation:
-
-```bash
-cat > /etc/logrotate.d/activepieces << 'EOF'
-/var/log/activepieces/*.log {
-    daily
-    rotate 14
-    compress
-    delaycompress
-    notifempty
-    create 0640 www-data www-data
-    sharedscripts
-}
-EOF
-```
-
----
-
-## 📈 Monitoring Setup (Optional)
-
-### Basic Monitoring with htop
-
-```bash
-apt install -y htop
-htop
-```
-
-### Setup Status Page
-
-Create a simple status check script:
-
-```bash
-cat > /opt/activepieces-assistant/check_status.sh << 'EOF'
-#!/bin/bash
-
-echo "=== ActivePieces AI Assistant Status ==="
-echo ""
-
-# Check backend
-if systemctl is-active --quiet activepieces-backend; then
-    echo "✅ Backend: Running"
-else
-    echo "❌ Backend: Stopped"
-fi
-
-# Check frontend
-if systemctl is-active --quiet activepieces-frontend; then
-    echo "✅ Frontend: Running"
-else
-    echo "❌ Frontend: Stopped"
-fi
-
-# Check nginx
-if systemctl is-active --quiet nginx; then
-    echo "✅ Nginx: Running"
-else
-    echo "❌ Nginx: Stopped"
-fi
-
-# Check API health
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health)
-if [ "$HTTP_CODE" = "200" ]; then
-    echo "✅ API Health: OK"
-else
-    echo "❌ API Health: Failed (HTTP $HTTP_CODE)"
-fi
-
-# Resource usage
-echo ""
-echo "=== Resource Usage ==="
-free -h | grep Mem
-df -h / | grep -v Filesystem
-echo ""
-EOF
-
-chmod +x /opt/activepieces-assistant/check_status.sh
-```
-
-Run it:
-```bash
-/opt/activepieces-assistant/check_status.sh
-```
-
 ---
 
 ## 🎯 Quick Reference
@@ -1046,7 +980,7 @@ journalctl -u activepieces-backend -n 100
 
 - [ ] Droplet created and accessible via SSH
 - [ ] System updated and dependencies installed
-- [ ] Repository cloned
+- [ ] Repository cloned from GitHub
 - [ ] Python virtual environment created
 - [ ] Dependencies installed
 - [ ] `.env` file configured with API keys
@@ -1087,17 +1021,6 @@ Your AI Assistant is now fully deployed and running!
 
 ---
 
-## 📚 Additional Resources
-
-- **GitHub**: Your repository URL
-- **OpenAI Docs**: https://platform.openai.com/docs
-- **FastAPI Docs**: https://fastapi.tiangolo.com
-- **Nginx Docs**: https://nginx.org/en/docs/
-- **Let's Encrypt**: https://letsencrypt.org/
-
----
-
 **Happy Deploying! 🚀**
 
 *Last updated: 2024*
-
