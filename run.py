@@ -23,10 +23,10 @@ def check_env_file():
 
 def check_vector_store():
     """Check if vector store exists."""
-    if not os.path.exists("ap_faiss_index"):
+    if not os.path.exists("data/ap_faiss_index"):
         print("❌ Vector store not found!")
         print("\nPlease prepare the knowledge base first:")
-        print("  python prepare_knowledge_base.py")
+        print("  python scripts/migration/prepare_knowledge_base.py")
         return False
     return True
 
@@ -65,7 +65,7 @@ def run_backend():
     
     try:
         subprocess.run(
-            [sys.executable, "-m", "uvicorn", "main:app", "--reload"],
+            [sys.executable, "-m", "uvicorn", "src.main:app", "--reload"],
             check=True
         )
     except KeyboardInterrupt:
@@ -107,7 +107,7 @@ def run_both():
     try:
         # Start backend in background
         backend_process = subprocess.Popen(
-            [sys.executable, "-m", "uvicorn", "main:app", "--reload"],
+            [sys.executable, "-m", "uvicorn", "src.main:app", "--reload"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE
         )
@@ -174,7 +174,7 @@ def main():
         run_both()
     elif choice == "4":
         print("\nRunning tests...\n")
-        subprocess.run([sys.executable, "test_assistant.py"])
+        subprocess.run([sys.executable, "tests/test_assistant.py"])
     elif choice == "5":
         print("\nGoodbye! 👋")
         sys.exit(0)

@@ -1,9 +1,47 @@
 import React, { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
+import ReactMarkdown from 'react-markdown'
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import remarkGfm from 'remark-gfm'
 import './App.css'
+
+// Code block with copy button component
+const CodeBlock = ({ language, children }) => {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(String(children).replace(/\n$/, ''))
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <div className="code-block-wrapper">
+      <div className="code-block-header">
+        <span className="code-language">{language}</span>
+        <button onClick={handleCopy} className="copy-button">
+          {copied ? '✓ Copied!' : '📋 Copy'}
+        </button>
+      </div>
+      <SyntaxHighlighter
+        style={vscDarkPlus}
+        language={language}
+        PreTag="div"
+      >
+        {String(children).replace(/\n$/, '')}
+      </SyntaxHighlighter>
+    </div>
+  )
+}
 
 // Use environment variable or fallback to localhost
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+
+// Generate a unique session ID
+const generateSessionId = () => {
+  return `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+}
 
 function App() {
   const [messages, setMessages] = useState([])
@@ -11,6 +49,11 @@ function App() {
   const [isLoading, setIsLoading] = useState(false)
   const [stats, setStats] = useState(null)
   const [currentStatus, setCurrentStatus] = useState(null)
+  const [sessionId, setSessionId] = useState(() => generateSessionId())
+  const [showSessions, setShowSessions] = useState(false)
+  const [previousSessions, setPreviousSessions] = useState([])
+  const [selectedSession, setSelectedSession] = useState(null)
+  const [buildFlowMode, setBuildFlowMode] = useState(false)
   const messagesEndRef = useRef(null)
   const eventSourceRef = useRef(null)
   const abortControllerRef = useRef(null)
@@ -24,9 +67,10 @@ function App() {
     scrollToBottom()
   }, [messages])
 
-  // Fetch stats on mount
+  // Fetch stats and sessions on mount
   useEffect(() => {
     fetchStats()
+    fetchSessions()
   }, [])
 
   const fetchStats = async () => {
@@ -35,6 +79,47 @@ function App() {
       setStats(response.data)
     } catch (error) {
       console.error('Error fetching stats:', error)
+    }
+  }
+
+  const fetchSessions = async () => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/sessions`)
+      setPreviousSessions(response.data.sessions)
+    } catch (error) {
+      console.error('Error fetching sessions:', error)
+    }
+  }
+
+  const loadSession = async (sessionIdToLoad) => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/sessions/${sessionIdToLoad}`)
+      setSelectedSession(response.data)
+    } catch (error) {
+      console.error('Error loading session:', error)
+      alert('Error loading session')
+    }
+  }
+
+  const closeSessionView = () => {
+    setSelectedSession(null)
+  }
+
+  const deleteSession = async (sessionIdToDelete) => {
+    if (!window.confirm('Are you sure you want to delete this session?')) {
+      return
+    }
+
+    try {
+      await axios.delete(`${API_BASE_URL}/sessions/${sessionIdToDelete}`)
+      fetchSessions()
+      if (selectedSession?.session_id === sessionIdToDelete) {
+        setSelectedSession(null)
+      }
+      alert('Session deleted!')
+    } catch (error) {
+      console.error('Error deleting session:', error)
+      alert('Error deleting session')
     }
   }
 
@@ -72,7 +157,11 @@ function App() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ message: userMessage }),
+        body: JSON.stringify({ 
+          message: userMessage,
+          session_id: sessionId,
+          build_flow_mode: buildFlowMode
+        }),
         signal: abortControllerRef.current.signal
       })
 
@@ -146,18 +235,16 @@ function App() {
   }
 
   const resetConversation = async () => {
-    if (!window.confirm('Are you sure you want to clear the conversation history?')) {
+    if (!window.confirm('Are you sure you want to start a new session?')) {
       return
     }
 
-    try {
-      await axios.post(`${API_BASE_URL}/reset`)
-      setMessages([])
-      alert('Conversation history cleared!')
-    } catch (error) {
-      console.error('Error resetting conversation:', error)
-      alert('Error clearing conversation history')
-    }
+    // Generate new session ID and clear messages
+    setSessionId(generateSessionId())
+    setMessages([])
+    
+    // Refresh sessions list to include the old session
+    fetchSessions()
   }
 
   return (
@@ -174,9 +261,22 @@ function App() {
             </div>
           )}
         </div>
-        <button onClick={resetConversation} className="reset-btn" title="Clear conversation">
-          🗑️ Clear
-        </button>
+        <div className="header-actions">
+          <button 
+            onClick={() => setShowSessions(!showSessions)} 
+            className="sessions-btn" 
+            title="View previous sessions"
+          >
+            📋 History ({previousSessions.length})
+          </button>
+          <button 
+            onClick={resetConversation} 
+            className="reset-btn" 
+            title="Start new session"
+          >
+            🔄 New Session
+          </button>
+        </div>
       </header>
 
       <div className="chat-container">
@@ -201,7 +301,27 @@ function App() {
                 {msg.sender === 'user' ? '👤' : '🤖'}
               </div>
               <div className="message-content">
-                <div className="message-text">{msg.text}</div>
+                <div className="message-text">
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      code({ node, inline, className, children, ...props }) {
+                        const match = /language-(\w+)/.exec(className || '')
+                        return !inline && match ? (
+                          <CodeBlock language={match[1]}>
+                            {children}
+                          </CodeBlock>
+                        ) : (
+                          <code className={className} {...props}>
+                            {children}
+                          </code>
+                        )
+                      }
+                    }}
+                  >
+                    {msg.text}
+                  </ReactMarkdown>
+                </div>
               </div>
             </div>
           ))}
@@ -241,23 +361,131 @@ function App() {
         </div>
 
         <div className="input-area">
-          <textarea
-            value={currentInput}
-            onChange={(e) => setCurrentInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Ask me about ActivePieces... (Press Enter to send)"
-            disabled={isLoading}
-            rows={1}
-          />
-          <button 
-            onClick={sendMessage} 
-            disabled={!currentInput.trim() || isLoading}
-            className="send-btn"
-          >
-            {isLoading ? '⏳' : '📤'}
-          </button>
+          <div className="input-controls">
+            <div className="mode-toggle">
+              <label className="toggle-label">
+                <input
+                  type="checkbox"
+                  checked={buildFlowMode}
+                  onChange={(e) => setBuildFlowMode(e.target.checked)}
+                  disabled={isLoading}
+                />
+                <span className="toggle-text">
+                  🔧 Build Flow Mode {buildFlowMode && '(Active)'}
+                </span>
+              </label>
+              {buildFlowMode && (
+                <span className="mode-description">
+                  Get comprehensive step-by-step flow building guides
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="input-box">
+            <textarea
+              value={currentInput}
+              onChange={(e) => setCurrentInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={buildFlowMode ? "Describe the flow you want to build..." : "Ask me about ActivePieces... (Press Enter to send)"}
+              disabled={isLoading}
+              rows={1}
+            />
+            <button 
+              onClick={sendMessage} 
+              disabled={!currentInput.trim() || isLoading}
+              className="send-btn"
+            >
+              {isLoading ? '⏳' : '📤'}
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* Sessions Panel */}
+      {showSessions && (
+        <div className="sessions-panel">
+          <div className="sessions-header">
+            <h3>📋 Previous Sessions</h3>
+            <button onClick={() => setShowSessions(false)} className="close-btn">✕</button>
+          </div>
+          <div className="sessions-list">
+            {previousSessions.length === 0 ? (
+              <p className="no-sessions">No previous sessions</p>
+            ) : (
+              previousSessions.map((session) => (
+                <div key={session.session_id} className="session-item">
+                  <div className="session-info" onClick={() => loadSession(session.session_id)}>
+                    <div className="session-preview">{session.preview}...</div>
+                    <div className="session-meta">
+                      <span>{session.message_count} messages</span>
+                      <span>{new Date(session.updated_at).toLocaleString()}</span>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      deleteSession(session.session_id)
+                    }}
+                    className="delete-session-btn"
+                    title="Delete session"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Session Viewer Modal */}
+      {selectedSession && (
+        <div className="modal-overlay" onClick={closeSessionView}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Session Details</h3>
+              <button onClick={closeSessionView} className="close-btn">✕</button>
+            </div>
+            <div className="modal-body">
+              <div className="session-messages">
+                {selectedSession.messages.map((msg, idx) => (
+                  <div key={idx} className={`message ${msg.role === 'user' ? 'user' : 'assistant'}`}>
+                    <div className="message-avatar">
+                      {msg.role === 'user' ? '👤' : '🤖'}
+                    </div>
+                    <div className="message-content">
+                      <div className="message-text">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            code({ node, inline, className, children, ...props }) {
+                              const match = /language-(\w+)/.exec(className || '')
+                              return !inline && match ? (
+                                <CodeBlock language={match[1]}>
+                                  {children}
+                                </CodeBlock>
+                              ) : (
+                                <code className={className} {...props}>
+                                  {children}
+                                </code>
+                              )
+                            }
+                          }}
+                        >
+                          {msg.message}
+                        </ReactMarkdown>
+                      </div>
+                      <div className="message-time">
+                        {new Date(msg.timestamp).toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <footer className="footer">
         <p>Powered by OpenAI, LangChain & FastAPI</p>

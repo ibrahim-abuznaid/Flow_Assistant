@@ -2,22 +2,29 @@
 
 An intelligent assistant that helps users work with ActivePieces (workflow automation platform) using AI-powered knowledge retrieval and web search.
 
-## 🚀 **NEW: Production Deployment Ready!**
+## 🚀 **Production Deployment Ready!**
 
-**Quick Links:**
-- 📦 **[Deploy to Ubuntu in 15 min](QUICK_START_PRODUCTION.md)** ⭐ 
-- 📚 **[Deployment Guide Index](DEPLOYMENT_GUIDE_INDEX.md)** - All deployment docs
-- 🐙 **[GitHub Setup Guide](GITHUB_SETUP.md)** - Upload to GitHub safely
-- ✅ **[Setup Summary](SETUP_SUMMARY.md)** - What's new and ready
+**✨ [DEPLOYMENT COMPLETE!](docs/deployment/DEPLOYMENT_COMPLETE.md)** - See what's new!
+
+**Deployment Guides:**
+- 📑 **[Deployment Index](docs/deployment/DEPLOYMENT_INDEX.md)** ⭐ - Start here! Choose your deployment path
+- 🚀 **[Quick Deploy](docs/deployment/QUICK_DEPLOY.md)** - TL;DR deployment (3 commands!)
+- 📦 **[Complete Guide](docs/deployment/DEPLOYMENT_GUIDE.md)** - Full step-by-step guide (30 min)
+- 📋 **[Deployment Summary](docs/deployment/DEPLOYMENT_SUMMARY.md)** - What's included in deployment
+
+**Other Resources:**
+- 🐙 **[GitHub Setup Guide](docs/setup/GITHUB_SETUP.md)** - Upload to GitHub safely
+- ✅ **[Setup Summary](docs/setup/SETUP_SUMMARY.md)** - What's new and ready
 
 ## 🌟 Features
 
 - **PostgreSQL Knowledge Base**: Fast, scalable database queries for ActivePieces integrations and actions
 - **RAG (Retrieval Augmented Generation)**: Semantic search through vector database for contextual answers
-- **Web Search**: Integration with Perplexity API for real-time information
+- **Web Search**: OpenAI Responses API (default) or Perplexity for real-time information
 - **Persistent Memory**: Remembers conversation context across sessions
 - **Multiple LLM Support**: Works with OpenAI GPT, Anthropic Claude, and Google Gemini
 - **Beautiful UI**: Modern React interface with real-time chat
+- **🆕 Code Generation Tool**: Built-in guidelines for generating TypeScript code pieces following ActivePieces best practices
 
 ## 📊 Knowledge Base
 
@@ -32,14 +39,14 @@ An intelligent assistant that helps users work with ActivePieces (workflow autom
 
 ```bash
 # Run the setup script
-python setup.py
+python scripts/deployment/setup.py
 
 # Configure your API keys in .env
 # Then prepare the knowledge base
-python prepare_knowledge_base.py
+python scripts/migration/prepare_knowledge_base.py
 
 # Start the backend
-uvicorn main:app --reload
+uvicorn src.main:app --reload
 
 # In a new terminal, start the frontend
 cd frontend
@@ -63,28 +70,27 @@ npm run dev
    ```
 
 3. **Configure Environment**:
-   - Copy `.env.example` to `.env`
-   - Add your API keys (OpenAI required, Perplexity optional)
-   - Configure PostgreSQL connection (see below)
+   - Copy `env.example` to `.env`
+   - Add your `OPENAI_API_KEY` (required)
+   - Web search will use OpenAI by default (set `SEARCH_PROVIDER=perplexity` to use Perplexity instead)
 
-4. **Setup PostgreSQL Database**:
-   - Ensure PostgreSQL is running on `localhost:5433`
-   - Database should be configured per `AGENT_CONNECTION_GUIDE.md`
-   - Default connection: `postgresql://postgres:7777@localhost:5433/activepieces_pieces`
+4. **Setup Database**:
+   - SQLite database is used by default (stored in `data/activepieces.db`)
+   - No additional database setup required!
 
 5. **Prepare Knowledge Base** (Optional - for vector search):
    ```bash
-   python prepare_knowledge_base.py
+   python scripts/migration/prepare_knowledge_base.py
    ```
 
-6. **Test Database Connection**:
+6. **Test Setup**:
    ```bash
-   python db_config.py
+   python tests/test_assistant.py
    ```
 
 7. **Run Backend**:
    ```bash
-   uvicorn main:app --reload
+   uvicorn src.main:app --reload
    ```
 
 8. **Run Frontend** (in a separate terminal):
@@ -98,10 +104,35 @@ npm run dev
 
 ## 📖 Documentation
 
-- **[QUICKSTART.md](QUICKSTART.md)**: Detailed setup and usage guide
-- **[ai_assistant_build_guide.md](ai_assistant_build_guide.md)**: Complete development guide
-- **[POSTGRES_MIGRATION.md](POSTGRES_MIGRATION.md)**: PostgreSQL integration details
-- **[AGENT_CONNECTION_GUIDE.md](AGENT_CONNECTION_GUIDE.md)**: Database connection guide
+**📚 [Complete Documentation Index](docs/INDEX.md)** - All 60+ docs organized and indexed!
+
+### Setup & Installation
+- **[Quick Start](docs/setup/QUICKSTART.md)**: Detailed setup and usage guide
+- **[Installation Guide](docs/setup/INSTALLATION.md)**: Step-by-step installation
+- **[GitHub Setup](docs/setup/GITHUB_SETUP.md)**: Version control setup
+
+### Deployment
+- **[Easy Deployment Guide](docs/deployment/EASY_DEPLOYMENT_GUIDE.md)**: Simple production deployment
+- **[Deployment Checklist](docs/deployment/DEPLOYMENT_CHECKLIST.md)**: Pre-deployment checklist
+- **[Quick Start Production](docs/deployment/QUICK_START_PRODUCTION.md)**: Fast production setup
+
+### Features & Guides
+- **[AI Assistant Build Guide](docs/features/ai_assistant_build_guide.md)**: Complete development guide
+- **[Planning Layer Guide](docs/features/PLANNING_LAYER_GUIDE.md)**: Query planning system
+- **[Real-time Status](docs/features/REAL_TIME_STATUS_FEATURE.md)**: Live status updates
+- **🆕 [Code Generation Guide](docs/features/CODE_GENERATION_GUIDE.md)**: TypeScript code generation for flow steps
+- **🆕 [Quick Code Reference](QUICK_CODE_GENERATION_REFERENCE.md)**: Quick reference for code generation
+
+### Troubleshooting
+- **[Troubleshooting](docs/troubleshooting/TROUBLESHOOTING.md)**: Common issues and solutions
+- **[Database Fixes](docs/troubleshooting/FIX_DATABASE_CONNECTION.md)**: Database connection issues
+- **[Model Errors](docs/troubleshooting/FIX_MODEL_ERROR.md)**: LLM configuration fixes
+
+### Project Info
+- **[Repository Structure](STRUCTURE.md)**: Detailed structure guide (start here!)
+- **[Reorganization Complete](docs/REORGANIZATION_COMPLETE.md)**: See how we organized 83+ files! ✨
+- **[Project Overview](docs/PROJECT_OVERVIEW.md)**: Complete project documentation
+- **[Project Summary](docs/PROJECT_SUMMARY.md)**: Quick project summary
 
 ## 🔧 API Endpoints
 
@@ -113,24 +144,54 @@ npm run dev
 ## 📁 Project Structure
 
 ```
-.
-├── main.py                      # FastAPI application
-├── agent.py                     # LLM agent setup
-├── tools.py                     # Tool definitions (check, search, web)
-├── db_config.py                 # PostgreSQL connection manager
-├── memory.py                    # Memory persistence
-├── llm_config.py               # LLM initialization
-├── prepare_knowledge_base.py   # Vector store preparation
-├── setup.py                    # Automated setup script
+Flow_Assistant/
+├── src/                        # Main application code
+│   ├── main.py                # FastAPI application
+│   ├── agent.py               # LLM agent with planning
+│   ├── planner.py             # Query planning layer (GPT-5)
+│   ├── tools.py               # Tool definitions
+│   ├── db_config.py           # Database configuration
+│   ├── memory.py              # Conversation memory
+│   └── llm_config.py          # LLM initialization
+│
+├── tests/                      # Test suite
+│   ├── test_assistant.py      # Main test suite
+│   ├── test_planner.py        # Planning layer tests
+│   └── test_sessions.py       # Session management tests
+│
+├── docs/                       # Documentation
+│   ├── setup/                 # Setup guides
+│   ├── deployment/            # Deployment guides
+│   ├── troubleshooting/       # Fix guides
+│   ├── features/              # Feature documentation
+│   └── migration/             # Migration guides
+│
+├── scripts/                    # Utility scripts
+│   ├── migration/             # Data migration scripts
+│   ├── deployment/            # Deployment scripts
+│   └── maintenance/           # Maintenance utilities
+│
+├── config/                     # Configuration files
+│   ├── nginx.conf.template    # Nginx configuration
+│   └── systemd/               # Service files
+│
+├── data/                       # Data files
+│   ├── activepieces.db        # SQLite database
+│   ├── ap_faiss_index/        # Vector store
+│   ├── chat_sessions/         # Session storage
+│   └── pieces_knowledge_base.json
+│
+├── frontend/                   # React UI
+│   ├── src/
+│   │   ├── App.jsx           # Main component
+│   │   └── App.css           # Styles
+│   └── package.json          # Dependencies
+│
+├── run.py                      # Application launcher
 ├── requirements.txt            # Python dependencies
-├── .env.example               # Environment template
-├── POSTGRES_MIGRATION.md       # PostgreSQL migration docs
-├── AGENT_CONNECTION_GUIDE.md   # Database connection guide
-└── frontend/                  # React UI
-    ├── src/
-    │   ├── App.jsx           # Main component
-    │   └── App.css           # Styles
-    └── package.json          # Frontend dependencies
+├── env.example                # Environment template
+├── README.md                  # This file
+└── LICENSE                    # MIT License
 ```
 
 ## 💡 Example Usage
@@ -143,6 +204,17 @@ Ask the assistant questions like:
 - "Show me all triggers for Gmail"
 - "How do I filter data in a workflow?"
 
+### 🆕 Code Generation
+
+Ask the assistant to generate TypeScript code for flow steps:
+
+- "Create code to fetch user data from an API"
+- "Generate code to filter an array of objects"
+- "Write code to send a POST request with authentication"
+- "Create code to transform JSON data"
+
+The assistant will automatically provide properly formatted TypeScript code following ActivePieces best practices.
+
 ## 🔑 Configuration
 
 ### Environment Variables
@@ -150,9 +222,12 @@ Ask the assistant questions like:
 ```ini
 # AI Configuration
 OPENAI_API_KEY=your_key_here          # Required
-PERPLEXITY_API_KEY=your_key_here      # Optional
 MODEL_PROVIDER=openai                  # openai, anthropic, google
-MODEL_NAME=gpt-4-turbo-preview        # Model to use
+MODEL_NAME=gpt-4o                     # Model to use
+
+# Web Search Configuration
+SEARCH_PROVIDER=openai                 # openai (default) or perplexity
+# PERPLEXITY_API_KEY=your_key_here    # Only if using perplexity
 
 # Database Configuration (Optional - uses defaults if not set)
 DB_HOST=localhost                      # Default: localhost
@@ -184,16 +259,31 @@ MODEL_NAME=gemini-pro
 GOOGLE_API_KEY=your_key
 ```
 
+### Web Search Configuration
+
+**OpenAI Search (Default)**:
+```ini
+SEARCH_PROVIDER=openai  # or omit this line (openai is default)
+# Uses OpenAI Responses API with web_search tool
+# No additional API key needed
+```
+
+**Perplexity Search (Alternative)**:
+```ini
+SEARCH_PROVIDER=perplexity
+PERPLEXITY_API_KEY=your_perplexity_key
+```
+
 ## 🛠️ Technology Stack
 
 **Backend**:
 - FastAPI - Web framework
 - LangChain - LLM orchestration
-- OpenAI - Language models & embeddings
+- OpenAI - Language models, embeddings & web search (Responses API)
 - PostgreSQL - Primary knowledge database
 - psycopg3 - PostgreSQL adapter
 - FAISS - Vector database for semantic search
-- Perplexity - Web search
+- Perplexity - Optional alternative web search
 
 **Frontend**:
 - React - UI framework
@@ -219,19 +309,26 @@ See the **Quick Start** section above for local development setup.
 
 For deploying to a production Ubuntu server (DigitalOcean, AWS, etc.):
 
-1. **See [DEPLOYMENT.md](DEPLOYMENT.md)** for comprehensive deployment guide
-2. **Quick Deploy**: Use the automated deployment script:
+**📖 [Complete Deployment Guide](docs/deployment/DEPLOYMENT_GUIDE.md)** - Step-by-step guide that covers:
+
+- ✅ Fresh Ubuntu setup (22.04/24.04)
+- ✅ Backend, Frontend, Database, Vector Store, RAG
+- ✅ Nginx reverse proxy with SSL/HTTPS
+- ✅ Systemd services for auto-restart
+- ✅ Firewall and security configuration
+- ✅ Troubleshooting and monitoring
+- ✅ Performance optimization
+
+**Quick Deploy Options**:
+
+1. **Automated** (One command):
    ```bash
-   sudo ./deploy_ubuntu.sh
+   curl -fsSL https://raw.githubusercontent.com/yourusername/Flow_Assistant/main/scripts/deployment/deploy_digitalocean.sh | sudo bash
    ```
 
-The deployment includes:
-- ✅ Nginx reverse proxy configuration
-- ✅ Systemd services for auto-restart
-- ✅ SSL/HTTPS setup guide (Let's Encrypt)
-- ✅ PostgreSQL database setup
-- ✅ Firewall configuration
-- ✅ Production optimization tips
+2. **Manual** (30 minutes):
+   - See **[Quick Deploy Guide](docs/deployment/QUICK_DEPLOY.md)** for TL;DR version
+   - Or **[Complete Deployment Guide](docs/deployment/DEPLOYMENT_GUIDE.md)** for detailed walkthrough
 
 ### GitHub Repository Setup
 

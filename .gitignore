@@ -63,18 +63,21 @@ Thumbs.db
 # ============================================================================
 # Application Specific
 # ============================================================================
-# Chat history and logs
-chat_history.json
+# Data directory (contains runtime data, regenerated on deployment)
+data/chat_history.json
+data/chat_sessions/
+data/sessions_index.json
+data/ap_faiss_index/
 *.log
 logs/
 
-# FAISS vector store (regenerate on deployment)
-ap_faiss_index/
+# Database files
+data/*.db
+data/*.sqlite
+data/*.sqlite3
 
-# Database files (if using SQLite for development)
-*.db
-*.sqlite
-*.sqlite3
+# BUT include the main activepieces database (needed for deployment)
+!data/activepieces.db
 
 # Backup files
 *.backup

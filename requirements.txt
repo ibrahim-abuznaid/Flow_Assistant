@@ -15,8 +15,8 @@ anthropic>=0.39.0
 # Vector Store
 faiss-cpu>=1.9.0
 
-# Database
-psycopg[binary]>=3.2.0
+# Database (SQLite is built into Python - no additional packages needed)
+# psycopg[binary]>=3.2.0  # OLD: PostgreSQL (removed for easier deployment)
 
 # Utilities
 python-dotenv>=1.0.0
