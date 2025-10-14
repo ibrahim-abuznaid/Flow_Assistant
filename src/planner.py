@@ -3,6 +3,7 @@ Planning layer for analyzing user queries and generating execution plans.
 Uses GPT-5 (o1) for advanced reasoning and query interpretation.
 """
 import os
+import json
 from typing import Dict, Any, Optional
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -149,8 +150,6 @@ Now analyze the user query above and provide the plan."""
             plan_text = response.output_text.strip()
             
             # Parse the JSON response
-            import json
-            
             # Extract JSON from markdown code blocks if present
             if "```json" in plan_text:
                 plan_text = plan_text.split("```json")[1].split("```")[0].strip()

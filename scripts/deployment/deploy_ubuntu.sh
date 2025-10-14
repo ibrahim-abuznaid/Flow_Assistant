@@ -505,8 +505,8 @@ nginx -t
 
 if [ $? -eq 0 ]; then
     print_success "Nginx configuration is valid"
-    systemctl restart nginx
-    systemctl enable nginx
+systemctl restart nginx
+systemctl enable nginx
     print_success "Nginx configured and started"
 else
     print_error "Nginx configuration test failed"

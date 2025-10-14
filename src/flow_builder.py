@@ -3,6 +3,7 @@ Flow Builder - Specialized module for building comprehensive ActivePieces workfl
 This module provides intelligent flow building with clarification questions and detailed plans.
 """
 import os
+import json
 from typing import Dict, Any, Optional, List
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -132,7 +133,6 @@ Now analyze the user's request above."""
             analysis_text = response.output_text.strip()
             
             # Parse JSON response
-            import json
             if "```json" in analysis_text:
                 analysis_text = analysis_text.split("```json")[1].split("```")[0].strip()
             elif "```" in analysis_text:
