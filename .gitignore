@@ -7,6 +7,7 @@ __pycache__/
 *.so
 .Python
 venv/
+.venv/
 env/
 ENV/
 build/
@@ -67,7 +68,6 @@ Thumbs.db
 data/chat_history.json
 data/chat_sessions/
 data/sessions_index.json
-data/ap_faiss_index/
 *.log
 logs/
 
@@ -78,6 +78,13 @@ data/*.sqlite3
 
 # BUT include the main activepieces database (needed for deployment)
 !data/activepieces.db
+
+# Include FAISS vector store (needed for deployment)
+!data/ap_faiss_index/
+!data/ap_faiss_index/**
+
+# Include knowledge base JSON (needed for deployment)
+!data/pieces_knowledge_base.json
 
 # Backup files
 *.backup

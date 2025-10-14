@@ -13,7 +13,7 @@ load_dotenv()
 
 def load_pieces_data():
     """Load the Pieces knowledge base JSON file."""
-    with open("pieces_knowledge_base.json", "r", encoding="utf-8") as f:
+    with open("data/pieces_knowledge_base.json", "r", encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -102,8 +102,8 @@ def create_vector_store(documents):
     vector_store = FAISS.from_documents(documents, embeddings)
     
     # Save to disk
-    vector_store.save_local("ap_faiss_index")
-    print("Vector store created and saved to 'ap_faiss_index'")
+    vector_store.save_local("data/ap_faiss_index")
+    print("Vector store created and saved to 'data/ap_faiss_index'")
     
     return vector_store
 
