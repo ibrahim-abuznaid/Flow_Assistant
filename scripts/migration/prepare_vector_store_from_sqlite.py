@@ -70,61 +70,51 @@ def main():
                     continue
                 
                 # Create main piece document
-                piece_text = f"""
-Piece: {piece_details['display_name']}
-Name: {piece_details['name']}
-Description: {piece_details.get('description', '')}
-Authentication: {piece_details.get('auth_type', 'None')}
-Categories: {', '.join(piece_details.get('categories', []))}
-Actions: {len(piece_details.get('actions', []))}
-Triggers: {len(piece_details.get('triggers', []))}
-""".strip()
+                description = piece_details.get('description', '') or 'No description available'
+                piece_text = f"Piece: {piece_details['display_name']}. Name: {piece_details['name']}. Description: {description}. Authentication: {piece_details.get('auth_type', 'None')}. Categories: {', '.join(piece_details.get('categories', []))}. Actions: {len(piece_details.get('actions', []))}. Triggers: {len(piece_details.get('triggers', []))}"
                 
-                documents.append(Document(
-                    page_content=piece_text,
-                    metadata={
-                        'type': 'piece',
-                        'name': piece_details['name'],
-                        'display_name': piece_details['display_name']
-                    }
-                ))
+                # Only add if content is valid
+                if piece_text and len(piece_text.strip()) > 10:
+                    documents.append(Document(
+                        page_content=piece_text,
+                        metadata={
+                            'type': 'piece',
+                            'name': piece_details['name'],
+                            'display_name': piece_details['display_name']
+                        }
+                    ))
                 
                 # Create documents for each action
                 for action in piece_details.get('actions', []):
-                    action_text = f"""
-Action: {action['display_name']}
-Piece: {piece_details['display_name']}
-Description: {action.get('description', '')}
-Requires Auth: {action.get('requires_auth', False)}
-""".strip()
+                    desc = action.get('description', '') or 'No description available'
+                    action_text = f"Action: {action['display_name']}. Piece: {piece_details['display_name']}. Description: {desc}. Requires Auth: {action.get('requires_auth', False)}"
                     
-                    documents.append(Document(
-                        page_content=action_text,
-                        metadata={
-                            'type': 'action',
-                            'piece': piece_details['name'],
-                            'action': action['name']
-                        }
-                    ))
+                    # Only add if content is valid
+                    if action_text and len(action_text.strip()) > 10:
+                        documents.append(Document(
+                            page_content=action_text,
+                            metadata={
+                                'type': 'action',
+                                'piece': piece_details['name'],
+                                'action': action['name']
+                            }
+                        ))
                 
                 # Create documents for each trigger
                 for trigger in piece_details.get('triggers', []):
-                    trigger_text = f"""
-Trigger: {trigger['display_name']}
-Piece: {piece_details['display_name']}
-Description: {trigger.get('description', '')}
-Type: {trigger.get('trigger_type', 'Unknown')}
-Requires Auth: {trigger.get('requires_auth', False)}
-""".strip()
+                    desc = trigger.get('description', '') or 'No description available'
+                    trigger_text = f"Trigger: {trigger['display_name']}. Piece: {piece_details['display_name']}. Description: {desc}. Type: {trigger.get('trigger_type', 'Unknown')}. Requires Auth: {trigger.get('requires_auth', False)}"
                     
-                    documents.append(Document(
-                        page_content=trigger_text,
-                        metadata={
-                            'type': 'trigger',
-                            'piece': piece_details['name'],
-                            'trigger': trigger['name']
-                        }
-                    ))
+                    # Only add if content is valid
+                    if trigger_text and len(trigger_text.strip()) > 10:
+                        documents.append(Document(
+                            page_content=trigger_text,
+                            metadata={
+                                'type': 'trigger',
+                                'piece': piece_details['name'],
+                                'trigger': trigger['name']
+                            }
+                        ))
             
             print(f"✓ Created {len(documents)} documents for vector store")
     
@@ -145,17 +135,46 @@ Requires Auth: {trigger.get('requires_auth', False)}
             self.model = model
         
         def embed_documents(self, texts: list[str]) -> list[list[float]]:
-            """Embed a list of documents."""
-            response = self.client.embeddings.create(
-                input=texts,
-                model=self.model
-            )
-            return [item.embedding for item in response.data]
+            """Embed a list of documents with batching."""
+            # Clean and validate texts
+            clean_texts = []
+            for text in texts:
+                if text and isinstance(text, str):
+                    # Remove any problematic characters and limit length
+                    cleaned = text.strip()[:8000]  # OpenAI limit is 8191 tokens
+                    if cleaned:
+                        clean_texts.append(cleaned)
+                    else:
+                        clean_texts.append("No content")
+                else:
+                    clean_texts.append("No content")
+            
+            # Batch process in chunks of 100 (OpenAI recommendation)
+            all_embeddings = []
+            batch_size = 100
+            
+            for i in range(0, len(clean_texts), batch_size):
+                batch = clean_texts[i:i+batch_size]
+                try:
+                    response = self.client.embeddings.create(
+                        input=batch,
+                        model=self.model
+                    )
+                    all_embeddings.extend([item.embedding for item in response.data])
+                except Exception as e:
+                    print(f"  ⚠️  Warning: Batch {i//batch_size + 1} failed: {e}")
+                    # Add zero vectors for failed batch
+                    all_embeddings.extend([[0.0] * 1536 for _ in batch])
+            
+            return all_embeddings
         
         def embed_query(self, text: str) -> list[float]:
             """Embed a single query."""
+            # Clean the text
+            clean_text = text.strip()[:8000] if text else "query"
+            
             response = self.client.embeddings.create(
-                input=[text],
+                input=[clean_text],
                 model=self.model
             )
             return response.data[0].embedding

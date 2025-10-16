@@ -234,7 +234,7 @@ sudo chown deploy:deploy /var/www
 
 # Clone your repository
 cd /var/www
-git clone https://github.com/YOUR_USERNAME/Flow_Assistant.git
+git clone https://github.com/ibrahim-abuznaid/Flow_Assistant.git
 cd Flow_Assistant
 ```
 
