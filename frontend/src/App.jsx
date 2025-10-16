@@ -255,9 +255,9 @@ function App() {
           <p className="subtitle">Your intelligent guide to workflow automation</p>
           {stats && (
             <div className="stats">
-              <span>{stats.total_pieces} Pieces</span>
-              <span>{stats.total_actions} Actions</span>
-              <span>{stats.total_triggers} Triggers</span>
+              <span>{stats.total_pieces.toLocaleString()} Pieces</span>
+              <span>{stats.total_actions.toLocaleString()} Actions</span>
+              <span>{stats.total_triggers.toLocaleString()} Triggers</span>
             </div>
           )}
         </div>

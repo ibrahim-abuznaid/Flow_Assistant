@@ -459,22 +459,36 @@ async def delete_session(session_id: str):
 @app.get("/stats")
 async def get_stats():
     """
-    Get statistics about the knowledge base.
+    Get statistics about the knowledge base from SQLite database.
     """
     try:
-        import json
+        import sqlite3
+        import os
+        from datetime import datetime
         
-        with open("data/pieces_knowledge_base.json", "r", encoding="utf-8") as f:
-            data = json.load(f)
+        # Connect to the activepieces database
+        db_path = os.path.join('activepieces-pieces-db', 'activepieces-pieces.db')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
         
-        metadata = data.get("metadata", {})
+        # Get counts from database
+        cursor.execute('SELECT COUNT(*) FROM pieces')
+        total_pieces = cursor.fetchone()[0]
+        
+        cursor.execute('SELECT COUNT(*) FROM actions')
+        total_actions = cursor.fetchone()[0]
+        
+        cursor.execute('SELECT COUNT(*) FROM triggers')
+        total_triggers = cursor.fetchone()[0]
+        
+        conn.close()
         
         return {
-            "total_pieces": metadata.get("totalPieces", 0),
-            "total_actions": metadata.get("totalActions", 0),
-            "total_triggers": metadata.get("totalTriggers", 0),
-            "generated_at": metadata.get("generatedAt", ""),
-            "version": metadata.get("version", "")
+            "total_pieces": total_pieces,
+            "total_actions": total_actions,
+            "total_triggers": total_triggers,
+            "generated_at": datetime.now().isoformat(),
+            "version": "2.0.0"
         }
     
     except Exception as e:

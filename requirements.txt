@@ -2,11 +2,11 @@
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 
-# LangChain and AI
-langchain>=0.3.0
-langchain-openai>=0.2.0
-langchain-community>=0.3.0
-langchain-core>=0.3.0
+# LangChain and AI (updated for Pydantic v2 compatibility)
+langchain>=0.3.15
+langchain-openai>=0.2.14
+langchain-community>=0.3.15
+langchain-core>=0.3.25
 
 # LLM Providers
 openai>=1.50.0

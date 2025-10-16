@@ -4,10 +4,8 @@ Tools for the AI assistant agent.
 import os
 import requests
 from typing import Optional, List, Dict, Any
-from langchain.tools import tool
-from langchain_openai import OpenAIEmbeddings
-from langchain_community.vectorstores import FAISS
 from src.db_config import get_db_cursor
+from src.activepieces_db import ActivepiecesDB
 
 
 # Global variables for caching
@@ -21,8 +19,17 @@ def get_vector_store():
     if _vector_store is None:
         import pickle
         import faiss
-        from langchain_community.docstore.in_memory import InMemoryDocstore
-        from langchain.schema import Document
+        import numpy as np
+        from openai import OpenAI
+        
+        # Import langchain components (avoiding langchain-openai)
+        try:
+            from langchain_community.docstore.in_memory import InMemoryDocstore
+            from langchain.schema import Document
+            from langchain_community.vectorstores import FAISS
+            from langchain.embeddings.base import Embeddings
+        except Exception as e:
+            raise ImportError(f"Failed to import langchain components: {e}. Please ensure langchain packages are properly installed.")
         
         # Load the FAISS index
         index = faiss.read_index("data/ap_faiss_index/index.faiss")
@@ -41,20 +48,36 @@ def get_vector_store():
         
         docstore = InMemoryDocstore(documents)
         
-        # Initialize embeddings with API key to avoid proxy issues
-        import os
-        from openai import _base_client
+        # Create custom embeddings class using OpenAI directly (avoiding langchain-openai compatibility issues)
+        class CustomOpenAIEmbeddings(Embeddings):
+            def __init__(self, api_key: str, model: str = "text-embedding-ada-002"):
+                # Create OpenAI client without proxies parameter to avoid compatibility issues
+                self.client = OpenAI(
+                    api_key=api_key,
+                    http_client=None  # Let OpenAI use default http client
+                )
+                self.model = model
+            
+            def embed_documents(self, texts: list[str]) -> list[list[float]]:
+                """Embed a list of documents."""
+                response = self.client.embeddings.create(
+                    input=texts,
+                    model=self.model
+                )
+                return [item.embedding for item in response.data]
+            
+            def embed_query(self, text: str) -> list[float]:
+                """Embed a single query."""
+                response = self.client.embeddings.create(
+                    input=[text],
+                    model=self.model
+                )
+                return response.data[0].embedding
         
-        # Monkey patch to fix proxies parameter issue
-        original_init = _base_client.SyncHttpxClientWrapper.__init__
-        def patched_init(self, **kwargs):
-            kwargs.pop('proxies', None)
-            original_init(self, **kwargs)
-        _base_client.SyncHttpxClientWrapper.__init__ = patched_init
-        
+        # Initialize custom embeddings
         api_key = os.getenv("OPENAI_API_KEY")
-        _embeddings = OpenAIEmbeddings(
-            openai_api_key=api_key,
+        _embeddings = CustomOpenAIEmbeddings(
+            api_key=api_key,
             model="text-embedding-ada-002"
         )
         
@@ -73,72 +96,29 @@ def find_piece_by_name(name: str) -> Optional[Dict[str, Any]]:
     name_lower = name.lower().strip()
     
     try:
-        with get_db_cursor() as cur:
-            # First, try exact match
-            cur.execute("""
-                SELECT 
-                    id, name, display_name, description, 
-                    categories, auth_type, version
-                FROM pieces
-                WHERE LOWER(display_name) = ? OR LOWER(name) = ?
-                LIMIT 1
-            """, (name_lower, name_lower))
+        with ActivepiecesDB() as db:
+            # Try exact match first
+            piece = db.get_piece_details(name_lower)
             
-            piece = cur.fetchone()
-            
-            # If no exact match, try partial match
+            # If no exact match, try searching
             if not piece:
-                cur.execute("""
-                    SELECT 
-                        id, name, display_name, description, 
-                        categories, auth_type, version
-                    FROM pieces
-                    WHERE 
-                        LOWER(display_name) LIKE ? 
-                        OR LOWER(name) LIKE ?
-                        OR LOWER(display_name) LIKE ?
-                        OR LOWER(name) LIKE ?
-                    LIMIT 1
-                """, (f'{name_lower}%', f'{name_lower}%', f'%{name_lower}%', f'%{name_lower}%'))
-                
-                piece = cur.fetchone()
+                results = db.search_pieces(name_lower, limit=1)
+                if results:
+                    piece_name = results[0]['name']
+                    piece = db.get_piece_details(piece_name)
             
             if not piece:
                 return None
             
-            # Get actions for this piece
-            cur.execute("""
-                SELECT display_name, description, requires_auth
-                FROM actions
-                WHERE piece_id = ?
-                ORDER BY display_name
-            """, (piece['id'],))
-            actions = cur.fetchall()
-            
-            # Get triggers for this piece
-            cur.execute("""
-                SELECT display_name, description, trigger_type, requires_auth
-                FROM triggers
-                WHERE piece_id = ?
-                ORDER BY display_name
-            """, (piece['id'],))
-            triggers = cur.fetchall()
-            
-            # Format result similar to JSON structure
-            # Parse JSON fields (categories is stored as JSON text in SQLite)
-            from src.db_config import parse_json_fields
-            piece_dict = parse_json_fields(dict(piece), ['categories', 'authors'])
-            
+            # Format result similar to expected structure
             return {
-                'displayName': piece_dict['display_name'],
-                'name': piece_dict['name'],
-                'slug': piece_dict['name'],
-                'description': piece_dict['description'] or '',
-                'categories': piece_dict.get('categories') or [],
-                'auth_type': piece_dict['auth_type'],
-                'version': piece_dict['version'],
-                'actions': [{'displayName': a['display_name'], 'description': a['description'] or ''} for a in actions],
-                'triggers': [{'displayName': t['display_name'], 'description': t['description'] or ''} for t in triggers]
+                'displayName': piece['display_name'],
+                'name': piece['name'],
+                'slug': piece['name'],
+                'description': piece.get('description') or '',
+                'categories': piece.get('categories') or [],
+                'actions': [{'displayName': a['display_name'], 'description': a.get('description') or ''} for a in piece.get('actions', [])],
+                'triggers': [{'displayName': t['display_name'], 'description': t.get('description') or ''} for t in piece.get('triggers', [])]
             }
             
     except Exception as e:
@@ -149,31 +129,17 @@ def find_piece_by_name(name: str) -> Optional[Dict[str, Any]]:
 def find_action_by_name(action_name: str) -> List[Dict[str, str]]:
     """Find which pieces have an action with the given name from SQLite database."""
     action_lower = action_name.lower()
-    results = []
     
     try:
-        with get_db_cursor() as cur:
-            cur.execute("""
-                SELECT 
-                    p.display_name as piece,
-                    a.display_name as action,
-                    a.description
-                FROM actions a
-                JOIN pieces p ON a.piece_id = p.id
-                WHERE 
-                    LOWER(a.display_name) LIKE ? 
-                    OR LOWER(a.name) LIKE ?
-                ORDER BY p.display_name, a.display_name
-            """, (f'%{action_lower}%', f'%{action_lower}%'))
+        with ActivepiecesDB() as db:
+            results = db.search_actions(action_lower, limit=50)
             
-            results = cur.fetchall()
-            
-            # Convert to list of dicts
+            # Convert to expected format
             return [
                 {
-                    'piece': row['piece'],
-                    'action': row['action'],
-                    'description': row['description'] or ''
+                    'piece': row['piece_display_name'],
+                    'action': row['action_display_name'],
+                    'description': row.get('description') or ''
                 }
                 for row in results
             ]
@@ -186,41 +152,43 @@ def find_action_by_name(action_name: str) -> List[Dict[str, str]]:
 def find_trigger_by_name(trigger_name: str) -> List[Dict[str, str]]:
     """Find which pieces have a trigger with the given name from SQLite database."""
     trigger_lower = trigger_name.lower()
-    results = []
     
     try:
-        with get_db_cursor() as cur:
-            cur.execute("""
-                SELECT 
-                    p.display_name as piece,
-                    t.display_name as trigger,
-                    t.description
-                FROM triggers t
-                JOIN pieces p ON t.piece_id = p.id
-                WHERE 
-                    LOWER(t.display_name) LIKE ? 
-                    OR LOWER(t.name) LIKE ?
-                ORDER BY p.display_name, t.display_name
-            """, (f'%{trigger_lower}%', f'%{trigger_lower}%'))
-            
-            results = cur.fetchall()
-            
-            # Convert to list of dicts
-            return [
-                {
-                    'piece': row['piece'],
-                    'trigger': row['trigger'],
-                    'description': row['description'] or ''
-                }
-                for row in results
-            ]
+        with ActivepiecesDB() as db:
+            # Use the search functionality - search in actions will also find triggers
+            # Since the helper doesn't have a search_triggers method, we'll query directly
+            with get_db_cursor() as cur:
+                cur.execute("""
+                    SELECT 
+                        p.display_name as piece,
+                        t.display_name as trigger,
+                        t.description
+                    FROM triggers t
+                    JOIN pieces p ON t.piece_id = p.id
+                    WHERE 
+                        LOWER(t.display_name) LIKE ? 
+                        OR LOWER(t.name) LIKE ?
+                    ORDER BY p.display_name, t.display_name
+                    LIMIT 50
+                """, (f'%{trigger_lower}%', f'%{trigger_lower}%'))
+                
+                results = cur.fetchall()
+                
+                # Convert to list of dicts
+                return [
+                    {
+                        'piece': row['piece'],
+                        'trigger': row['trigger'],
+                        'description': row['description'] or ''
+                    }
+                    for row in results
+                ]
             
     except Exception as e:
         print(f"Error finding triggers: {e}")
         return []
 
 
-@tool
 def check_activepieces(query: str) -> str:
     """
     Check if an integration, action, or trigger exists in ActivePieces.
@@ -298,7 +266,6 @@ def check_activepieces(query: str) -> str:
            f"You may need to use HTTP requests or webhooks to integrate with {query}."
 
 
-@tool
 def search_activepieces_docs(query: str) -> str:
     """
     Search the ActivePieces knowledge base for relevant information.
@@ -329,7 +296,6 @@ def search_activepieces_docs(query: str) -> str:
         return f"Error searching knowledge base: {str(e)}"
 
 
-@tool
 def web_search(query: str) -> str:
     """
     Search the web for current information using OpenAI or Perplexity API.
@@ -352,7 +318,6 @@ def web_search(query: str) -> str:
         return f"Unknown search provider: {search_provider}. Please set SEARCH_PROVIDER to 'openai' or 'perplexity'."
 
 
-@tool
 def get_code_generation_guidelines(context: str = "general") -> str:
     """
     Get comprehensive guidelines for generating TypeScript code for ActivePieces automation flows.
@@ -661,6 +626,72 @@ def _search_with_perplexity(query: str) -> str:
         return f"Unexpected error during Perplexity search: {str(e)}"
 
 
-# Export all tools
-ALL_TOOLS = [check_activepieces, search_activepieces_docs, web_search, get_code_generation_guidelines]
+# Create tool wrappers with langchain decorators only when needed
+def get_all_tools():
+    """Get all tools as langchain tools with lazy import."""
+    from langchain.tools import tool
+    
+    @tool
+    def check_activepieces_tool(query: str) -> str:
+        """
+        Check if an integration, action, or trigger exists in ActivePieces.
+        Use this tool to verify if a specific piece, action, or trigger is available.
+        
+        Args:
+            query: The name of the piece, action, or trigger to check
+            
+        Returns:
+            Information about whether it exists and its details
+        """
+        return check_activepieces(query)
+    
+    @tool
+    def search_activepieces_docs_tool(query: str) -> str:
+        """
+        Search the ActivePieces knowledge base for relevant information.
+        Use this tool to find information about how to do something, what actions to use,
+        or to get contextual information about ActivePieces features.
+        
+        Args:
+            query: The question or topic to search for
+            
+        Returns:
+            Relevant information from the knowledge base
+        """
+        return search_activepieces_docs(query)
+    
+    @tool
+    def web_search_tool(query: str) -> str:
+        """
+        Search the web for current information using OpenAI or Perplexity API.
+        Use this tool when the information is not available in the ActivePieces knowledge base
+        or when you need real-time/current information.
+        
+        Args:
+            query: The search query
+            
+        Returns:
+            Information from the web
+        """
+        return web_search(query)
+    
+    @tool
+    def get_code_generation_guidelines_tool(context: str = "general") -> str:
+        """
+        Get comprehensive guidelines for generating TypeScript code for ActivePieces automation flows.
+        Use this tool whenever you need to generate or help users write code pieces.
+        
+        Args:
+            context: The type of code to generate (e.g., 'api_call', 'data_transform', 'general')
+            
+        Returns:
+            Detailed guidelines and best practices for code generation
+        """
+        return get_code_generation_guidelines(context)
+    
+    return [check_activepieces_tool, search_activepieces_docs_tool, web_search_tool, get_code_generation_guidelines_tool]
+
+
+# Export all tools (for backward compatibility, lazy)
+ALL_TOOLS = None  # Will be populated on first access
 

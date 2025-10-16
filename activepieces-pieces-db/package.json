@@ -1,0 +1,25 @@
+{
+  "name": "activepieces-pieces-db",
+  "version": "1.0.0",
+  "description": "Standalone SQLite database of all Activepieces pieces, actions, and triggers",
+  "main": "activepieces_db.js",
+  "scripts": {
+    "example-py": "python activepieces_db.py",
+    "example-js": "node activepieces_db.js",
+    "test": "node activepieces_db.js"
+  },
+  "keywords": [
+    "activepieces",
+    "database",
+    "sqlite",
+    "automation",
+    "integrations"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "sqlite": "^5.1.1",
+    "sqlite3": "^5.1.7"
+  }
+}
+

@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from typing import Optional
 import json
 
-# SQLite database file path
+# SQLite database file path (updated to use new activepieces-pieces.db structure)
 DB_FILE = os.getenv('SQLITE_DB_FILE', 'data/activepieces.db')
 
 

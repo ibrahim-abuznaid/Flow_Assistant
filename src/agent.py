@@ -6,7 +6,7 @@ from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from src.llm_config import get_llm
 from src.memory import create_memory
-from src.tools import ALL_TOOLS
+from src.tools import get_all_tools
 from src.planner import create_guided_input
 
 
@@ -85,6 +85,9 @@ def create_agent() -> AgentExecutor:
     # Create memory
     memory = create_memory()
     
+    # Get tools with lazy loading
+    tools = get_all_tools()
+    
     # Create prompt template
     prompt = ChatPromptTemplate.from_messages([
         ("system", SYSTEM_PROMPT),
@@ -96,14 +99,14 @@ def create_agent() -> AgentExecutor:
     # Create agent using modern tool calling (compatible with all models)
     agent = create_tool_calling_agent(
         llm=llm,
-        tools=ALL_TOOLS,
+        tools=tools,
         prompt=prompt
     )
     
     # Create agent executor with balanced limits
     agent_executor = AgentExecutor(
         agent=agent,
-        tools=ALL_TOOLS,
+        tools=tools,
         memory=memory,
         verbose=True,
         handle_parsing_errors=True,
@@ -141,6 +144,9 @@ def get_agent(session_id: Optional[str] = None) -> AgentExecutor:
     # Create memory with session history
     memory = create_memory(session_id=session_id)
     
+    # Get tools with lazy loading
+    tools = get_all_tools()
+    
     # Create prompt template
     prompt = ChatPromptTemplate.from_messages([
         ("system", SYSTEM_PROMPT),
@@ -152,14 +158,14 @@ def get_agent(session_id: Optional[str] = None) -> AgentExecutor:
     # Create agent using modern tool calling
     agent = create_tool_calling_agent(
         llm=llm,
-        tools=ALL_TOOLS,
+        tools=tools,
         prompt=prompt
     )
     
     # Create agent executor
     agent_executor = AgentExecutor(
         agent=agent,
-        tools=ALL_TOOLS,
+        tools=tools,
         memory=memory,
         verbose=True,
         handle_parsing_errors=True,
