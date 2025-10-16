@@ -633,60 +633,34 @@ def get_all_tools():
     
     @tool
     def check_activepieces_tool(query: str) -> str:
-        """
-        Check if an integration, action, or trigger exists in ActivePieces.
-        Use this tool to verify if a specific piece, action, or trigger is available.
+        """Check if an integration, action, or trigger exists in ActivePieces. Use this to verify availability.
         
         Args:
-            query: The name of the piece, action, or trigger to check
-            
-        Returns:
-            Information about whether it exists and its details
-        """
+            query (str): Name of the piece, action, or trigger to check"""
         return check_activepieces(query)
     
     @tool
     def search_activepieces_docs_tool(query: str) -> str:
-        """
-        Search the ActivePieces knowledge base for relevant information.
-        Use this tool to find information about how to do something, what actions to use,
-        or to get contextual information about ActivePieces features.
+        """Search the ActivePieces knowledge base for information about actions, triggers, and their properties.
         
         Args:
-            query: The question or topic to search for
-            
-        Returns:
-            Relevant information from the knowledge base
-        """
+            query (str): The question or topic to search for (e.g., 'Slack send message input properties')"""
         return search_activepieces_docs(query)
     
     @tool
     def web_search_tool(query: str) -> str:
-        """
-        Search the web for current information using OpenAI or Perplexity API.
-        Use this tool when the information is not available in the ActivePieces knowledge base
-        or when you need real-time/current information.
+        """Search the web for current information not available in ActivePieces knowledge base.
         
         Args:
-            query: The search query
-            
-        Returns:
-            Information from the web
-        """
+            query (str): The search query"""
         return web_search(query)
     
     @tool
     def get_code_generation_guidelines_tool(context: str = "general") -> str:
-        """
-        Get comprehensive guidelines for generating TypeScript code for ActivePieces automation flows.
-        Use this tool whenever you need to generate or help users write code pieces.
+        """Get guidelines for generating TypeScript code for ActivePieces flows. Use before writing code.
         
         Args:
-            context: The type of code to generate (e.g., 'api_call', 'data_transform', 'general')
-            
-        Returns:
-            Detailed guidelines and best practices for code generation
-        """
+            context (str): Type of code - 'api_call', 'data_transform', or 'general'"""
         return get_code_generation_guidelines(context)
     
     return [check_activepieces_tool, search_activepieces_docs_tool, web_search_tool, get_code_generation_guidelines_tool]

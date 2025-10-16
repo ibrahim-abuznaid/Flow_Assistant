@@ -4,6 +4,10 @@ Uses GPT-5 (o1) for advanced reasoning and query interpretation.
 """
 import os
 import json
+import re
+from collections import OrderedDict
+from copy import deepcopy
+from threading import Lock
 from typing import Dict, Any, Optional
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -16,8 +20,38 @@ class QueryPlanner:
     Query planner that uses GPT-5 (gpt-5-thinking) to analyze user queries and generate
     clear, actionable plans for the agent to execute.
     """
+    SIMPLE_LOOKUP_KEYWORDS = (
+        "available",
+        "exist",
+        "exists",
+        "support",
+        "supported",
+        "have",
+        "integration",
+        "piece",
+        "trigger",
+        "action",
+        "connector",
+    )
+    SIMPLE_LOOKUP_VERBS = ("is", "does", "do", "can", "are", "was")
+    DETAIL_KEYWORDS = (
+        "input",
+        "field",
+        "property",
+        "parameter",
+        "configuration",
+        "configure",
+        "setup",
+        "set up",
+        "mapping",
+        "settings",
+    )
+    ACTION_TERMS = ("action", "trigger", "step", "task", "piece")
+    MAX_SIMPLE_LOOKUP_LENGTH = 140
+    MAX_DETAIL_LOOKUP_LENGTH = 260
+    CACHE_DEFAULT_SIZE = 64
     
-    def __init__(self, model: str = "gpt-5"):
+    def __init__(self, model: str = "gpt-5-mini"):
         """
         Initialize the planner with GPT-5 model.
         
@@ -26,7 +60,91 @@ class QueryPlanner:
         """
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.model = model
+        self._cache_maxsize = int(os.getenv("PLANNER_CACHE_MAXSIZE", self.CACHE_DEFAULT_SIZE))
+        self._plan_cache: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+        self._cache_lock = Lock()
         print(f"✓ Planner initialized with GPT-5 model: {model}")
+    
+    def _clone_plan(self, plan: Dict[str, Any]) -> Dict[str, Any]:
+        return deepcopy(plan)
+    
+    def _get_cached_plan(self, cache_key: str) -> Optional[Dict[str, Any]]:
+        with self._cache_lock:
+            cached = self._plan_cache.get(cache_key)
+            if cached is None:
+                return None
+            self._plan_cache.move_to_end(cache_key)
+            return self._clone_plan(cached)
+    
+    def _store_plan(self, cache_key: str, plan: Dict[str, Any]) -> None:
+        with self._cache_lock:
+            self._plan_cache[cache_key] = self._clone_plan(plan)
+            self._plan_cache.move_to_end(cache_key)
+            if len(self._plan_cache) > self._cache_maxsize:
+                self._plan_cache.popitem(last=False)
+    
+    def _looks_like_simple_lookup(self, query_lower: str) -> bool:
+        if len(query_lower) > self.MAX_SIMPLE_LOOKUP_LENGTH:
+            return False
+        if any(keyword in query_lower for keyword in self.SIMPLE_LOOKUP_KEYWORDS):
+            return True
+        if query_lower.endswith("?") and query_lower.split("?")[0].count(" ") <= 8:
+            return True
+        return any(query_lower.startswith(verb + " ") for verb in self.SIMPLE_LOOKUP_VERBS)
+    
+    def _create_simple_lookup_plan(self, user_query: str) -> Dict[str, Any]:
+        normalized = user_query.strip()
+        return {
+            "intent": f"Verify if '{normalized}' is available in ActivePieces",
+            "query_type": "simple_check",
+            "action_plan": [
+                "Step 1: Call check_activepieces once using the exact query. SUCCESS = piece/action/trigger details returned. MAX ATTEMPTS = 1",
+                "Step 2: If a result is found, summarize the key info (name, description, count of actions/triggers) and STOP immediately after responding.",
+                "Step 3: If nothing is found, inform the user it's unavailable and suggest using HTTP request/webhook as alternatives."
+            ],
+            "recommended_tools": ["check_activepieces"],
+            "search_queries": [normalized],
+            "max_tool_calls": 1,
+            "stopping_condition": "After a single check_activepieces call, respond with the findings or state that it is unavailable.",
+            "fallback_strategy": "If the database lookup fails, explain the issue and suggest manually checking the ActivePieces UI.",
+            "context": "Auto-generated fast path plan (no LLM planning call)."
+        }
+    
+    def _looks_like_detail_lookup(self, query_lower: str) -> bool:
+        if len(query_lower) > self.MAX_DETAIL_LOOKUP_LENGTH:
+            return False
+        if not any(keyword in query_lower for keyword in self.DETAIL_KEYWORDS):
+            return False
+        return any(term in query_lower for term in self.ACTION_TERMS)
+    
+    def _create_detail_lookup_plan(self, user_query: str) -> Dict[str, Any]:
+        normalized = user_query.strip()
+        return {
+            "intent": f"Gather configuration details for '{normalized}'",
+            "query_type": "configuration",
+            "action_plan": [
+                "Step 1: Use search_activepieces_docs once with the query. SUCCESS = list all input properties with types and requirements. MAX ATTEMPTS = 1",
+                "Step 2: Summarize required/optional fields, types, and notable defaults. STOP immediately after summarizing.",
+                "Step 3: If details remain unclear, note the gaps and recommend checking the ActivePieces UI."
+            ],
+            "recommended_tools": ["search_activepieces_docs"],
+            "search_queries": [normalized],
+            "max_tool_calls": 1,
+            "stopping_condition": "After one documentation search call, respond with the gathered details (or note missing info).",
+            "fallback_strategy": "If doc search fails, provide general guidance using known best practices and suggest checking the UI.",
+            "context": "Auto-generated fast path plan for configuration-style queries."
+        }
+    
+    def _build_fast_plan(self, user_query: str) -> Optional[Dict[str, Any]]:
+        normalized = user_query.strip()
+        if not normalized:
+            return None
+        lowered = normalized.lower()
+        if self._looks_like_simple_lookup(lowered):
+            return self._create_simple_lookup_plan(normalized)
+        if self._looks_like_detail_lookup(lowered):
+            return self._create_detail_lookup_plan(normalized)
+        return None
     
     def analyze_query(self, user_query: str) -> Dict[str, Any]:
         """
@@ -44,6 +162,25 @@ class QueryPlanner:
                 - context: Additional context for the agent
         """
         
+        normalized_query = (user_query or "").strip()
+
+        if not normalized_query:
+            fallback = self._create_fallback_plan(user_query)
+            return fallback
+
+        cache_key = f"{self.model}:{normalized_query.lower()}"
+
+        cached_plan = self._get_cached_plan(cache_key)
+        if cached_plan:
+            print("⚡ Planner cache hit (reuse)")
+            return cached_plan
+
+        fast_plan = self._build_fast_plan(normalized_query)
+        if fast_plan:
+            print("⚡ Planner fast-path used (no LLM call)")
+            self._store_plan(cache_key, fast_plan)
+            return self._clone_plan(fast_plan)
+
         planning_prompt = f"""You are a query analyzer for an ActivePieces AI assistant. Your role is to analyze user queries and create CLEAR, SPECIFIC, and EFFICIENT plans that prevent the agent from getting stuck or making redundant searches.
 
 ActivePieces is a workflow automation platform (like Zapier). The assistant has these capabilities:
@@ -59,7 +196,7 @@ CRITICAL PLANNING RULES:
 5. Tell agent explicitly when to STOP and respond
 
 Analyze this user query and provide a structured plan:
-"{user_query}"
+"{normalized_query}"
 
 You must respond in this exact JSON format:
 {{
@@ -154,9 +291,11 @@ Now analyze the user query above and provide the plan."""
             if "```json" in plan_text:
                 plan_text = plan_text.split("```json")[1].split("```")[0].strip()
             elif "```" in plan_text:
-                plan_text = plan_text.split("```")[1].split("```")[0].strip()
+                plan_text = plan_text.split("```", 1)[1].split("```", 1)[0].strip()
             
             plan = json.loads(plan_text)
+            self._store_plan(cache_key, plan)
+            plan_clone = self._clone_plan(plan)
             
             print(f"\n{'='*60}")
             print("📋 PLANNER OUTPUT:")
@@ -165,17 +304,21 @@ Now analyze the user query above and provide the plan."""
             print(f"Action Plan: {len(plan.get('action_plan', []))} steps")
             print(f"{'='*60}\n")
             
-            return plan
+            return plan_clone
             
         except json.JSONDecodeError as e:
             print(f"⚠️  Warning: Could not parse planner output as JSON: {e}")
             print(f"Raw output: {plan_text}")
             # Fallback to basic plan
-            return self._create_fallback_plan(user_query)
+            fallback = self._create_fallback_plan(normalized_query)
+            self._store_plan(cache_key, fallback)
+            return fallback
         
         except Exception as e:
             print(f"⚠️  Warning: Planner error: {e}")
-            return self._create_fallback_plan(user_query)
+            fallback = self._create_fallback_plan(normalized_query)
+            self._store_plan(cache_key, fallback)
+            return fallback
     
     def _create_fallback_plan(self, user_query: str) -> Dict[str, Any]:
         """

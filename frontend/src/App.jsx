@@ -136,6 +136,11 @@ function App() {
   const [previousSessions, setPreviousSessions] = useState([])
   const [selectedSession, setSelectedSession] = useState(null)
   const [buildFlowMode, setBuildFlowMode] = useState(false)
+  const [thinkingMode, setThinkingMode] = useState(() => {
+    // Load from localStorage, default to true
+    const saved = localStorage.getItem('thinkingMode')
+    return saved !== null ? saved === 'true' : true
+  })
   const messagesEndRef = useRef(null)
   const eventSourceRef = useRef(null)
   const abortControllerRef = useRef(null)
@@ -154,6 +159,11 @@ function App() {
     fetchStats()
     fetchSessions()
   }, [])
+
+  // Save thinking mode to localStorage when it changes
+  useEffect(() => {
+    localStorage.setItem('thinkingMode', thinkingMode)
+  }, [thinkingMode])
 
   const fetchStats = async () => {
     try {
@@ -243,10 +253,11 @@ function App() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           message: userMessage,
           session_id: sessionId,
-          build_flow_mode: buildFlowMode
+          build_flow_mode: buildFlowMode,
+          thinking_mode: thinkingMode
         }),
         signal: abortControllerRef.current.signal
       })
@@ -506,6 +517,30 @@ function App() {
 
         <div className="input-area">
           <div className="input-controls">
+            <div className="mode-toggle">
+              <label className="toggle-label">
+                <input
+                  type="checkbox"
+                  checked={thinkingMode}
+                  onChange={(e) => setThinkingMode(e.target.checked)}
+                  disabled={isLoading}
+                />
+                <span className="toggle-text">
+                  🧠 Thinking Mode {thinkingMode && '(Active)'}
+                </span>
+              </label>
+              {thinkingMode && (
+                <span className="mode-description">
+                  Uses planning for better responses (slower but smarter)
+                </span>
+              )}
+              {!thinkingMode && (
+                <span className="mode-description mode-description-warning">
+                  Direct mode - faster but may be less thorough
+                </span>
+              )}
+            </div>
+            
             <div className="mode-toggle">
               <label className="toggle-label">
                 <input

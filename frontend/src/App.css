@@ -716,6 +716,10 @@ body {
   animation: fadeIn 0.3s ease-in;
 }
 
+.mode-description-warning {
+  color: #ff9800;
+}
+
 .input-box {
   display: flex;
   gap: 1rem;

@@ -13,7 +13,7 @@ from queue import Queue
 from threading import Thread
 from typing import Any, Dict, Optional
 
-from src.agent import get_agent, run_agent_with_planning
+from src.agent import get_agent, run_agent_with_planning, clear_agent_cache
 from src.memory import log_interaction, clear_history, get_all_sessions, load_session, clear_session
 
 # Load environment variables
@@ -51,6 +51,7 @@ class ChatRequest(BaseModel):
     message: str
     session_id: Optional[str] = None
     build_flow_mode: Optional[bool] = False
+    thinking_mode: Optional[bool] = True  # Default True for backward compatibility
 
 
 class ChatResponse(BaseModel):
@@ -80,50 +81,67 @@ class StatusCallbackHandler(BaseCallbackHandler):
     def __init__(self, status_queue: Queue, cancellation_event: Event):
         self.status_queue = status_queue
         self.cancellation_event = cancellation_event
+        self.cancellation_logged = False
     
     def _check_cancellation(self):
         """Check if the request has been cancelled and raise exception if so."""
         if self.cancellation_event.is_set():
-            print("⚠️  Agent execution cancelled by client")
+            if not self.cancellation_logged:
+                print("⚠️  Agent execution cancelled by client")
+                self.cancellation_logged = True
             raise CancellationException("Request cancelled by client")
     
     def on_agent_action(self, action: Any, **kwargs) -> None:
         """Called when agent takes an action (uses a tool)."""
-        # Check for cancellation before tool execution
-        self._check_cancellation()
-        
-        tool_name = action.tool
-        tool_input = action.tool_input
-        
-        # Map tool names to friendly status messages
-        status_messages = {
-            "check_activepieces": "🔍 Checking ActivePieces database...",
-            "search_activepieces_docs": "📚 Searching knowledge base...",
-            "web_search": "🌐 Searching the web..."
-        }
-        
-        status = status_messages.get(tool_name, f"⚙️ Using {tool_name}...")
-        self.status_queue.put({"type": "status", "message": status, "tool": tool_name})
+        try:
+            # Check for cancellation before tool execution
+            self._check_cancellation()
+            
+            tool_name = action.tool
+            tool_input = action.tool_input
+            
+            # Map tool names to friendly status messages
+            status_messages = {
+                "check_activepieces_tool": "🔍 Checking ActivePieces database...",
+                "search_activepieces_docs_tool": "📚 Searching knowledge base...",
+                "web_search_tool": "🌐 Searching the web...",
+                "get_code_generation_guidelines_tool": "📝 Getting code guidelines..."
+            }
+            
+            status = status_messages.get(tool_name, f"⚙️ Using {tool_name}...")
+            self.status_queue.put({"type": "status", "message": status, "tool": tool_name})
+        except CancellationException:
+            raise  # Re-raise to stop execution
     
     def on_tool_start(self, serialized: Dict[str, Any], input_str: str, **kwargs) -> None:
         """Called when tool starts."""
-        # Check for cancellation before tool starts
-        self._check_cancellation()
+        try:
+            self._check_cancellation()
+        except CancellationException:
+            raise
     
     def on_tool_end(self, output: str, **kwargs) -> None:
         """Called when a tool finishes."""
-        # Check for cancellation after tool execution
-        self._check_cancellation()
-        self.status_queue.put({"type": "status", "message": "💭 Thinking...", "tool": None})
+        try:
+            self._check_cancellation()
+            self.status_queue.put({"type": "status", "message": "💭 Thinking...", "tool": None})
+        except CancellationException:
+            raise
     
     def on_llm_start(self, serialized: Dict[str, Any], prompts: list[str], **kwargs) -> None:
         """Called when LLM starts."""
-        # Check for cancellation before LLM call
-        self._check_cancellation()
+        try:
+            self._check_cancellation()
+        except CancellationException:
+            raise
     
     def on_agent_finish(self, finish: Any, **kwargs) -> None:
         """Called when agent finishes."""
-        self.status_queue.put({"type": "status", "message": "✨ Finalizing response...", "tool": None})
+        try:
+            if not self.cancellation_event.is_set():
+                self.status_queue.put({"type": "status", "message": "✨ Finalizing response...", "tool": None})
+        except Exception:
+            pass  # Ignore errors during finish
 
 
 @app.on_event("startup")
@@ -174,18 +192,24 @@ async def chat(request: ChatRequest):
     
     user_message = request.message.strip()
     session_id = request.session_id
+    thinking_mode = request.thinking_mode
     
     try:
-        # Get the agent with session-specific memory
-        agent = get_agent(session_id=session_id)
-        
-        # Run the agent with planning layer
         print(f"\n{'='*60}")
         print(f"User: {user_message}")
+        print(f"Thinking Mode: {'ON' if thinking_mode else 'OFF'}")
         print(f"{'='*60}")
         
-        result = run_agent_with_planning(user_message, agent, session_id=session_id)
-        assistant_reply = result.get("output", "I apologize, but I couldn't generate a response.")
+        if thinking_mode:
+            # Use planning layer + enhanced agent
+            agent = get_agent(session_id=session_id, use_planning=True)
+            result = run_agent_with_planning(user_message, agent, session_id=session_id)
+            assistant_reply = result.get("output", "I apologize, but I couldn't generate a response.")
+        else:
+            # Use direct agent (no planning) - faster execution
+            agent = get_agent(session_id=session_id, use_planning=False)
+            result = agent.invoke({"input": user_message})
+            assistant_reply = result.get("output", "I apologize, but I couldn't generate a response.")
         
         print(f"\nAssistant: {assistant_reply}")
         print(f"{'='*60}\n")
@@ -214,6 +238,7 @@ async def chat_stream(request: ChatRequest):
     user_message = request.message.strip()
     user_session_id = request.session_id  # Capture session_id from request
     build_flow_mode = request.build_flow_mode  # Capture build_flow_mode from request
+    thinking_mode = request.thinking_mode  # Capture thinking_mode from request
     
     async def event_generator():
         from threading import Event
@@ -256,6 +281,7 @@ async def chat_stream(request: ChatRequest):
                 print(f"\n{'='*60}")
                 print(f"User: {user_message}")
                 print(f"Build Flow Mode: {build_flow_mode}")
+                print(f"Thinking Mode: {'ON' if thinking_mode else 'OFF'}")
                 print(f"{'='*60}")
                 
                 # Check if Build Flow mode is enabled
@@ -296,28 +322,43 @@ async def chat_stream(request: ChatRequest):
                     enqueue_reply(assistant_reply)
                     
                 else:
-                    # Standard mode - use the regular agent
-                    # Get the agent with session-specific memory
-                    agent = get_agent(session_id=user_session_id)
-                    
+                    # Standard mode - use agent based on thinking_mode
                     # Create callback handler with cancellation support
                     callback = StatusCallbackHandler(status_queue, cancellation_event)
                     
                     # Send initial status
                     status_queue.put({"type": "status", "message": "🚀 Starting...", "tool": None})
                     
-                    # Add planning status
-                    status_queue.put({"type": "status", "message": "🧠 Planning query execution...", "tool": None})
-                    
-                    # Import planner for guided input
-                    from src.planner import create_guided_input
-                    guided_input = create_guided_input(user_message)
-                    
-                    # Execute agent with enhanced input and callbacks
-                    result = agent.invoke(
-                        {"input": guided_input["enhanced_input"]},
-                        config={"callbacks": [callback]}
-                    )
+                    if thinking_mode:
+                        # THINKING MODE ON: Use planning layer + enhanced agent
+                        # Get the agent with planning support
+                        agent = get_agent(session_id=user_session_id, use_planning=True)
+                        
+                        # Add planning status
+                        status_queue.put({"type": "status", "message": "🧠 Planning query execution...", "tool": None})
+                        
+                        # Import planner for guided input
+                        from src.planner import create_guided_input
+                        guided_input = create_guided_input(user_message)
+                        
+                        # Execute agent with enhanced input and callbacks
+                        result = agent.invoke(
+                            {"input": guided_input["enhanced_input"]},
+                            config={"callbacks": [callback]}
+                        )
+                    else:
+                        # THINKING MODE OFF: Use direct agent (faster, no planning)
+                        # Get the direct agent
+                        agent = get_agent(session_id=user_session_id, use_planning=False)
+                        
+                        # Skip planning, go straight to execution
+                        status_queue.put({"type": "status", "message": "💭 Processing query...", "tool": None})
+                        
+                        # Execute agent directly with user message and callbacks
+                        result = agent.invoke(
+                            {"input": user_message},
+                            config={"callbacks": [callback]}
+                        )
                     
                     assistant_reply = result.get("output", "I apologize, but I couldn't generate a response.")
                     result_container["output"] = assistant_reply
@@ -419,10 +460,8 @@ async def reset_conversation():
     try:
         clear_history()
         
-        # Reset the agent by clearing the global instance
-        from src.agent import _agent
-        if _agent is not None:
-            _agent.memory.clear()
+        # Reset cached agent executors to ensure a clean slate
+        clear_agent_cache()
         
         return {
             "status": "success",
@@ -477,6 +516,7 @@ async def delete_session(session_id: str):
     """
     try:
         clear_session(session_id)
+        clear_agent_cache(session_id=session_id)
         return {"status": "success", "message": f"Session {session_id} deleted"}
     except Exception as e:
         raise HTTPException(
