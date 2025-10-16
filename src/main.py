@@ -330,7 +330,38 @@ async def chat_stream(request: ChatRequest):
                     update = status_queue.get()
                     
                     try:
-                        yield f"data: {json.dumps(update)}\n\n"
+                        # For very long messages, chunk them to prevent SSE issues
+                        if update["type"] == "done" and "reply" in update:
+                            reply = update["reply"]
+                            # If reply is very long (> 8000 chars), send in chunks
+                            if len(reply) > 8000:
+                                chunk_size = 4000
+                                num_chunks = (len(reply) + chunk_size - 1) // chunk_size
+                                
+                                # Send chunk info first
+                                yield f"data: {json.dumps({'type': 'chunk_start', 'total_chunks': num_chunks})}\n\n"
+                                
+                                # Send each chunk
+                                for i in range(0, len(reply), chunk_size):
+                                    chunk = reply[i:i + chunk_size]
+                                    chunk_data = {
+                                        "type": "chunk",
+                                        "data": chunk,
+                                        "index": i // chunk_size,
+                                        "total": num_chunks
+                                    }
+                                    yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
+                                    await asyncio.sleep(0.01)  # Small delay between chunks
+                                
+                                # Send completion
+                                yield f"data: {json.dumps({'type': 'chunk_end'})}\n\n"
+                            else:
+                                # Normal size message - send as is with proper encoding
+                                yield f"data: {json.dumps(update, ensure_ascii=False)}\n\n"
+                        else:
+                            # Status updates - send as is
+                            yield f"data: {json.dumps(update, ensure_ascii=False)}\n\n"
+                            
                     except (GeneratorExit, StopAsyncIteration):
                         # Client disconnected - signal cancellation
                         print("🛑 Client disconnected - cancelling agent execution")
@@ -339,7 +370,7 @@ async def chat_stream(request: ChatRequest):
                         break
                     
                     # Break if done, error, or cancelled
-                    if update["type"] in ["done", "error", "cancelled"]:
+                    if update["type"] in ["done", "error", "cancelled", "chunk_end"]:
                         break
                 else:
                     # Small delay to prevent busy waiting

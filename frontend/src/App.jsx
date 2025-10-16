@@ -232,6 +232,10 @@ function App() {
     // Create new AbortController for this request
     abortControllerRef.current = new AbortController()
 
+    // For chunked responses
+    let chunkedResponse = ''
+    let isChunking = false
+
     try {
       // Use EventSource for streaming
       const response = await fetch(`${API_BASE_URL}/chat/stream`, {
@@ -264,7 +268,26 @@ function App() {
               
               if (data.type === 'status') {
                 setCurrentStatus(data.message)
+              } else if (data.type === 'chunk_start') {
+                // Start of chunked response
+                isChunking = true
+                chunkedResponse = ''
+                setCurrentStatus(`📥 Receiving response (${data.total_chunks} parts)...`)
+              } else if (data.type === 'chunk') {
+                // Accumulate chunks
+                chunkedResponse += data.data
+                setCurrentStatus(`📥 Receiving part ${data.index + 1}/${data.total}...`)
+              } else if (data.type === 'chunk_end') {
+                // End of chunked response - display accumulated message
+                isChunking = false
+                setCurrentStatus(null)
+                setMessages(prev => [...prev, { 
+                  sender: 'assistant', 
+                  text: chunkedResponse 
+                }])
+                chunkedResponse = ''
               } else if (data.type === 'done') {
+                // Regular non-chunked response
                 setCurrentStatus(null)
                 setMessages(prev => [...prev, { 
                   sender: 'assistant', 
@@ -278,7 +301,12 @@ function App() {
                 }])
               }
             } catch (e) {
+              // Better error handling - log the problematic line
               console.error('Error parsing SSE data:', e)
+              console.error('Problematic line:', line.slice(0, 200) + '...')
+              
+              // If we're not chunking and get a parse error, it might be a truncated message
+              // Continue processing other lines instead of breaking
             }
           }
         }
@@ -304,6 +332,14 @@ function App() {
       }])
       setCurrentStatus(null)
     } finally {
+      // If we were chunking and didn't get chunk_end, show what we have
+      if (isChunking && chunkedResponse) {
+        setMessages(prev => [...prev, { 
+          sender: 'assistant', 
+          text: chunkedResponse + '\n\n*[Response may be incomplete]*'
+        }])
+      }
+      
       setIsLoading(false)
       abortControllerRef.current = null
     }
