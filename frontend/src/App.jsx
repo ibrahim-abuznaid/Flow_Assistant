@@ -41,7 +41,8 @@ const CodeBlock = ({ language, children }) => {
 }
 
 // Message component with collapsible long content
-const Message = ({ msg, idx }) => {
+const Message = ({ msg, idx, buildFlowMode }) => {
+  // Start expanded by default, especially for Build Flow Mode
   const [isExpanded, setIsExpanded] = useState(true)
   const [needsExpand, setNeedsExpand] = useState(false)
   const messageRef = useRef(null)
@@ -49,28 +50,38 @@ const Message = ({ msg, idx }) => {
   useEffect(() => {
     if (messageRef.current && msg.sender === 'assistant') {
       const textLength = msg.text.length
-      // If message is longer than 3000 characters, make it collapsible
-      setNeedsExpand(textLength > 3000)
-      if (textLength > 3000) {
-        setIsExpanded(false)
-      }
+      
+      // For Build Flow Mode: Make collapsible at 5000 chars, start EXPANDED
+      // For Regular Mode: Make collapsible at 3000 chars, start EXPANDED
+      const threshold = buildFlowMode ? 5000 : 3000
+      
+      setNeedsExpand(textLength > threshold)
+      // Always start expanded so users see the full response
+      setIsExpanded(true)
     }
-  }, [msg])
+  }, [msg, buildFlowMode])
 
   const toggleExpand = () => {
     setIsExpanded(!isExpanded)
   }
 
+  // Show more preview text for collapsed state (2500 chars instead of 1500)
+  const previewLength = buildFlowMode ? 3000 : 2000
   const displayText = needsExpand && !isExpanded 
-    ? msg.text.substring(0, 1500) + '...' 
+    ? msg.text.substring(0, previewLength) + '...\n\n*[Content truncated - Click "Show More" to see the full guide]*' 
     : msg.text
 
   return (
-    <div key={idx} className={`message ${msg.sender}`} ref={messageRef}>
+    <div key={idx} className={`message ${msg.sender} ${buildFlowMode && msg.sender === 'assistant' ? 'flow-guide' : ''}`} ref={messageRef}>
       <div className="message-avatar">
-        {msg.sender === 'user' ? '👤' : '🤖'}
+        {msg.sender === 'user' ? '👤' : buildFlowMode && msg.sender === 'assistant' ? '🔧' : '🤖'}
       </div>
       <div className="message-content">
+        {buildFlowMode && msg.sender === 'assistant' && (
+          <div className="flow-guide-badge">
+            📋 Build Flow Guide
+          </div>
+        )}
         <div className="message-text">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
@@ -367,7 +378,7 @@ function App() {
           )}
 
           {messages.map((msg, idx) => (
-            <Message key={idx} msg={msg} idx={idx} />
+            <Message key={idx} msg={msg} idx={idx} buildFlowMode={buildFlowMode} />
           ))}
 
           {isLoading && (
@@ -499,7 +510,7 @@ function App() {
                   }
                   return (
                     <div key={idx}>
-                      <Message msg={messageData} idx={idx} />
+                      <Message msg={messageData} idx={idx} buildFlowMode={false} />
                       <div className="message-time-modal">
                         {new Date(msg.timestamp).toLocaleString()}
                       </div>
