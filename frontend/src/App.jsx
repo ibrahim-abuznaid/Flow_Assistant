@@ -28,9 +28,80 @@ const CodeBlock = ({ language, children }) => {
         style={vscDarkPlus}
         language={language}
         PreTag="div"
+        customStyle={{
+          margin: 0,
+          maxHeight: '500px',
+          overflow: 'auto'
+        }}
       >
         {String(children).replace(/\n$/, '')}
       </SyntaxHighlighter>
+    </div>
+  )
+}
+
+// Message component with collapsible long content
+const Message = ({ msg, idx }) => {
+  const [isExpanded, setIsExpanded] = useState(true)
+  const [needsExpand, setNeedsExpand] = useState(false)
+  const messageRef = useRef(null)
+
+  useEffect(() => {
+    if (messageRef.current && msg.sender === 'assistant') {
+      const textLength = msg.text.length
+      // If message is longer than 3000 characters, make it collapsible
+      setNeedsExpand(textLength > 3000)
+      if (textLength > 3000) {
+        setIsExpanded(false)
+      }
+    }
+  }, [msg])
+
+  const toggleExpand = () => {
+    setIsExpanded(!isExpanded)
+  }
+
+  const displayText = needsExpand && !isExpanded 
+    ? msg.text.substring(0, 1500) + '...' 
+    : msg.text
+
+  return (
+    <div key={idx} className={`message ${msg.sender}`} ref={messageRef}>
+      <div className="message-avatar">
+        {msg.sender === 'user' ? '👤' : '🤖'}
+      </div>
+      <div className="message-content">
+        <div className="message-text">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              code({ node, inline, className, children, ...props }) {
+                const match = /language-(\w+)/.exec(className || '')
+                return !inline && match ? (
+                  <CodeBlock language={match[1]}>
+                    {children}
+                  </CodeBlock>
+                ) : (
+                  <code className={className} {...props}>
+                    {children}
+                  </code>
+                )
+              }
+            }}
+          >
+            {displayText}
+          </ReactMarkdown>
+        </div>
+        {needsExpand && (
+          <button 
+            onClick={toggleExpand} 
+            className="expand-button"
+            title={isExpanded ? 'Show less' : 'Show more'}
+          >
+            {isExpanded ? '▲ Show Less' : '▼ Show More'}
+          </button>
+        )}
+      </div>
     </div>
   )
 }
@@ -296,34 +367,7 @@ function App() {
           )}
 
           {messages.map((msg, idx) => (
-            <div key={idx} className={`message ${msg.sender}`}>
-              <div className="message-avatar">
-                {msg.sender === 'user' ? '👤' : '🤖'}
-              </div>
-              <div className="message-content">
-                <div className="message-text">
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    components={{
-                      code({ node, inline, className, children, ...props }) {
-                        const match = /language-(\w+)/.exec(className || '')
-                        return !inline && match ? (
-                          <CodeBlock language={match[1]}>
-                            {children}
-                          </CodeBlock>
-                        ) : (
-                          <code className={className} {...props}>
-                            {children}
-                          </code>
-                        )
-                      }
-                    }}
-                  >
-                    {msg.text}
-                  </ReactMarkdown>
-                </div>
-              </div>
-            </div>
+            <Message key={idx} msg={msg} idx={idx} />
           ))}
 
           {isLoading && (
@@ -448,39 +492,20 @@ function App() {
             </div>
             <div className="modal-body">
               <div className="session-messages">
-                {selectedSession.messages.map((msg, idx) => (
-                  <div key={idx} className={`message ${msg.role === 'user' ? 'user' : 'assistant'}`}>
-                    <div className="message-avatar">
-                      {msg.role === 'user' ? '👤' : '🤖'}
-                    </div>
-                    <div className="message-content">
-                      <div className="message-text">
-                        <ReactMarkdown
-                          remarkPlugins={[remarkGfm]}
-                          components={{
-                            code({ node, inline, className, children, ...props }) {
-                              const match = /language-(\w+)/.exec(className || '')
-                              return !inline && match ? (
-                                <CodeBlock language={match[1]}>
-                                  {children}
-                                </CodeBlock>
-                              ) : (
-                                <code className={className} {...props}>
-                                  {children}
-                                </code>
-                              )
-                            }
-                          }}
-                        >
-                          {msg.message}
-                        </ReactMarkdown>
-                      </div>
-                      <div className="message-time">
+                {selectedSession.messages.map((msg, idx) => {
+                  const messageData = {
+                    sender: msg.role === 'user' ? 'user' : 'assistant',
+                    text: msg.message
+                  }
+                  return (
+                    <div key={idx}>
+                      <Message msg={messageData} idx={idx} />
+                      <div className="message-time-modal">
                         {new Date(msg.timestamp).toLocaleString()}
                       </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           </div>
