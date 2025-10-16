@@ -222,6 +222,35 @@ async def chat_stream(request: ChatRequest):
         result_container = {"output": None, "error": None}
         cancellation_event = Event()  # Used to signal cancellation to agent
         
+        CHUNK_THRESHOLD = 6000
+        CHUNK_SIZE = 3000
+
+        def enqueue_reply(reply: str):
+            """Send reply to client using chunked updates if necessary."""
+            if reply is None:
+                status_queue.put({"type": "done"})
+                return
+
+            if len(reply) > CHUNK_THRESHOLD:
+                total_chunks = (len(reply) + CHUNK_SIZE - 1) // CHUNK_SIZE
+                status_queue.put({"type": "chunk_start", "total_chunks": total_chunks})
+
+                for idx in range(total_chunks):
+                    start = idx * CHUNK_SIZE
+                    end = start + CHUNK_SIZE
+                    chunk = reply[start:end]
+                    status_queue.put({
+                        "type": "chunk",
+                        "data": chunk,
+                        "index": idx,
+                        "total": total_chunks
+                    })
+
+                status_queue.put({"type": "chunk_end"})
+                status_queue.put({"type": "done"})
+            else:
+                status_queue.put({"type": "done", "reply": reply})
+
         def run_agent():
             try:
                 print(f"\n{'='*60}")
@@ -264,7 +293,7 @@ async def chat_stream(request: ChatRequest):
                     log_interaction(user_message, assistant_reply, session_id=user_session_id)
                     
                     # Signal completion
-                    status_queue.put({"type": "done", "reply": assistant_reply})
+                    enqueue_reply(assistant_reply)
                     
                 else:
                     # Standard mode - use the regular agent
@@ -300,7 +329,7 @@ async def chat_stream(request: ChatRequest):
                     log_interaction(user_message, assistant_reply, session_id=user_session_id)
                     
                     # Signal completion
-                    status_queue.put({"type": "done", "reply": assistant_reply})
+                    enqueue_reply(assistant_reply)
                 
             except CancellationException:
                 # Request was cancelled - don't log as error
@@ -330,38 +359,7 @@ async def chat_stream(request: ChatRequest):
                     update = status_queue.get()
                     
                     try:
-                        # For very long messages, chunk them to prevent SSE issues
-                        if update["type"] == "done" and "reply" in update:
-                            reply = update["reply"]
-                            # If reply is very long (> 8000 chars), send in chunks
-                            if len(reply) > 8000:
-                                chunk_size = 4000
-                                num_chunks = (len(reply) + chunk_size - 1) // chunk_size
-                                
-                                # Send chunk info first
-                                yield f"data: {json.dumps({'type': 'chunk_start', 'total_chunks': num_chunks})}\n\n"
-                                
-                                # Send each chunk
-                                for i in range(0, len(reply), chunk_size):
-                                    chunk = reply[i:i + chunk_size]
-                                    chunk_data = {
-                                        "type": "chunk",
-                                        "data": chunk,
-                                        "index": i // chunk_size,
-                                        "total": num_chunks
-                                    }
-                                    yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
-                                    await asyncio.sleep(0.01)  # Small delay between chunks
-                                
-                                # Send completion
-                                yield f"data: {json.dumps({'type': 'chunk_end'})}\n\n"
-                            else:
-                                # Normal size message - send as is with proper encoding
-                                yield f"data: {json.dumps(update, ensure_ascii=False)}\n\n"
-                        else:
-                            # Status updates - send as is
-                            yield f"data: {json.dumps(update, ensure_ascii=False)}\n\n"
-                            
+                        yield f"data: {json.dumps(update, ensure_ascii=False)}\n\n"
                     except (GeneratorExit, StopAsyncIteration):
                         # Client disconnected - signal cancellation
                         print("🛑 Client disconnected - cancelling agent execution")
@@ -370,7 +368,7 @@ async def chat_stream(request: ChatRequest):
                         break
                     
                     # Break if done, error, or cancelled
-                    if update["type"] in ["done", "error", "cancelled", "chunk_end"]:
+                    if update["type"] in ["done", "error", "cancelled"]:
                         break
                 else:
                     # Small delay to prevent busy waiting

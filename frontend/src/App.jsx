@@ -253,62 +253,114 @@ function App() {
 
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
+      let buffer = ''
 
       while (true) {
         const { value, done } = await reader.read()
         if (done) break
 
-        const chunk = decoder.decode(value)
-        const lines = chunk.split('\n')
+        const chunk = decoder.decode(value, { stream: true })
+        buffer += chunk
 
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6))
-              
-              if (data.type === 'status') {
-                setCurrentStatus(data.message)
-              } else if (data.type === 'chunk_start') {
-                // Start of chunked response
-                isChunking = true
-                chunkedResponse = ''
-                setCurrentStatus(`📥 Receiving response (${data.total_chunks} parts)...`)
-              } else if (data.type === 'chunk') {
-                // Accumulate chunks
-                chunkedResponse += data.data
-                setCurrentStatus(`📥 Receiving part ${data.index + 1}/${data.total}...`)
-              } else if (data.type === 'chunk_end') {
-                // End of chunked response - display accumulated message
-                isChunking = false
-                setCurrentStatus(null)
-                setMessages(prev => [...prev, { 
-                  sender: 'assistant', 
-                  text: chunkedResponse 
-                }])
-                chunkedResponse = ''
-              } else if (data.type === 'done') {
-                // Regular non-chunked response
-                setCurrentStatus(null)
-                setMessages(prev => [...prev, { 
-                  sender: 'assistant', 
-                  text: data.reply 
-                }])
-              } else if (data.type === 'error') {
-                setCurrentStatus(null)
-                setMessages(prev => [...prev, { 
-                  sender: 'assistant', 
-                  text: `Error: ${data.message}` 
+        const lines = buffer.split('\n')
+
+        for (let i = 0; i < lines.length - 1; i++) {
+          const line = lines[i]
+
+          if (!line.trim()) continue
+
+          if (!line.startsWith('data: ')) {
+            console.warn('Ignoring non-data SSE line:', line.slice(0, 200) + '...')
+            continue
+          }
+
+          const payload = line.slice(6)
+
+          try {
+            const data = JSON.parse(payload)
+
+            if (data.type === 'status') {
+              setCurrentStatus(data.message)
+            } else if (data.type === 'chunk_start') {
+              isChunking = true
+              chunkedResponse = ''
+              setCurrentStatus(`📥 Receiving response (${data.total_chunks} parts)...`)
+            } else if (data.type === 'chunk') {
+              chunkedResponse += data.data
+              setCurrentStatus(`📥 Receiving part ${data.index + 1}/${data.total}...`)
+            } else if (data.type === 'chunk_end') {
+              isChunking = false
+              setCurrentStatus(null)
+              const finalText = chunkedResponse
+              setMessages(prev => [...prev, {
+                sender: 'assistant',
+                text: finalText
+              }])
+              chunkedResponse = ''
+            } else if (data.type === 'done') {
+              setCurrentStatus(null)
+              if (typeof data.reply === 'string' && data.reply.trim()) {
+                setMessages(prev => [...prev, {
+                  sender: 'assistant',
+                  text: data.reply
                 }])
               }
-            } catch (e) {
-              // Better error handling - log the problematic line
-              console.error('Error parsing SSE data:', e)
-              console.error('Problematic line:', line.slice(0, 200) + '...')
-              
-              // If we're not chunking and get a parse error, it might be a truncated message
-              // Continue processing other lines instead of breaking
+            } else if (data.type === 'error') {
+              setCurrentStatus(null)
+              setMessages(prev => [...prev, {
+                sender: 'assistant',
+                text: `Error: ${data.message}`
+              }])
             }
+          } catch (e) {
+            console.error('Error parsing SSE data:', e)
+            console.error('Problematic payload:', payload.slice(0, 200) + '...')
           }
+        }
+
+        buffer = lines[lines.length - 1]
+      }
+
+      const trimmedBuffer = buffer.trim()
+      if (trimmedBuffer) {
+        if (trimmedBuffer.startsWith('data: ')) {
+          const payload = trimmedBuffer.slice(6)
+
+          try {
+            const data = JSON.parse(payload)
+
+            if (data.type === 'done') {
+              setCurrentStatus(null)
+              if (typeof data.reply === 'string' && data.reply.trim()) {
+                setMessages(prev => [...prev, {
+                  sender: 'assistant',
+                  text: data.reply
+                }])
+              }
+            } else if (data.type === 'chunk_start') {
+              isChunking = true
+              chunkedResponse = ''
+              setCurrentStatus(`📥 Receiving response (${data.total_chunks} parts)...`)
+            } else if (data.type === 'chunk') {
+              chunkedResponse += data.data
+              setCurrentStatus(`📥 Receiving part ${data.index + 1}/${data.total}...`)
+            } else if (data.type === 'chunk_end') {
+              isChunking = false
+              setCurrentStatus(null)
+              const finalText = chunkedResponse
+              setMessages(prev => [...prev, {
+                sender: 'assistant',
+                text: finalText
+              }])
+              chunkedResponse = ''
+            }
+          } catch (e) {
+            console.error('Error parsing remaining SSE buffer:', e)
+            console.error('Remaining payload:', payload.slice(0, 200) + '...')
+          }
+        } else {
+            console.warn('Non-data SSE buffer remaining:', trimmedBuffer.slice(0, 200) + '...')
+          console.warn('Non-data SSE buffer remaining:', trimmedBuffer.slice(0, 200) + '...')
         }
       }
     } catch (error) {
@@ -334,9 +386,10 @@ function App() {
     } finally {
       // If we were chunking and didn't get chunk_end, show what we have
       if (isChunking && chunkedResponse) {
+        const finalText = chunkedResponse
         setMessages(prev => [...prev, { 
           sender: 'assistant', 
-          text: chunkedResponse + '\n\n*[Response may be incomplete]*'
+          text: finalText + '\n\n*[Response may be incomplete]*'
         }])
       }
       
@@ -474,6 +527,8 @@ function App() {
           </div>
           <div className="input-box">
             <textarea
+              id="chat-input"
+              name="chatMessage"
               value={currentInput}
               onChange={(e) => setCurrentInput(e.target.value)}
               onKeyDown={handleKeyDown}
