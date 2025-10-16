@@ -322,7 +322,7 @@ function App() {
     <div className="app">
       <header className="header">
         <div className="header-content">
-          <h1>🤖 ActivePieces AI Assistant</h1>
+          <h1>🤖 Activepieces AI Assistant</h1>
           <p className="subtitle">Your intelligent guide to workflow automation</p>
           {stats && (
             <div className="stats">
@@ -355,14 +355,14 @@ function App() {
           {messages.length === 0 && (
             <div className="welcome-message">
               <h2>👋 Welcome!</h2>
-              <p>I'm your ActivePieces AI assistant. I can help you with:</p>
+              <p>I'm your Activepieces AI assistant. I can help you with:</p>
               <ul>
                 <li>Finding integrations, actions, and triggers</li>
                 <li>Building workflows and automations</li>
-                <li>Understanding ActivePieces features</li>
+                <li>Understanding Activepieces features</li>
                 <li>Troubleshooting automation challenges</li>
               </ul>
-              <p className="prompt">Ask me anything about ActivePieces!</p>
+              <p className="prompt">Ask me anything about Activepieces!</p>
             </div>
           )}
 
@@ -430,7 +430,7 @@ function App() {
               value={currentInput}
               onChange={(e) => setCurrentInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={buildFlowMode ? "Describe the flow you want to build..." : "Ask me about ActivePieces... (Press Enter to send)"}
+              placeholder={buildFlowMode ? "Describe the flow you want to build..." : "Ask me about Activepieces... (Press Enter to send)"}
               disabled={isLoading}
               rows={1}
             />
