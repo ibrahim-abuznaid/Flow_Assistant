@@ -97,9 +97,6 @@ Create a file named `.env` in your project root:
 # OpenAI API Key (Required)
 OPENAI_API_KEY=sk-your-actual-key-here
 
-# Planner Model
-PLANNER_MODEL=gpt-5-mini
-
 # PostgreSQL Database Configuration
 DB_HOST=localhost
 DB_PORT=5433           # Change this to your actual port

@@ -94,7 +94,6 @@ sqlite3 data/activepieces.db "SELECT COUNT(*) FROM triggers;"  # 694
 - [ ] `OPENAI_API_KEY`
 - [ ] `MODEL_PROVIDER` (openai)
 - [ ] `MODEL_NAME` (gpt-4o)
-- [ ] `PLANNER_MODEL` (gpt-5-mini)
 - [ ] `FLOW_BUILDER_MODEL` (gpt-5-mini)
 - [ ] `SEARCH_PROVIDER` (openai or perplexity)
 - [ ] `ALLOWED_ORIGINS` (your domain)

@@ -374,19 +374,6 @@ No → Regenerate following guidelines
 
 ## 🔗 Related Workflows
 
-### Planning Layer Integration:
-```
-User Query
-  ↓
-[Planning Layer] ← Decides approach
-  ↓
-[Agent] ← Executes with tools
-  ↓
-[Code Generation Tool] ← When code needed
-  ↓
-Response to User
-```
-
 ### Multi-Tool Workflow:
 ```
 User: "Create a flow to fetch GitHub PRs and send to Slack"

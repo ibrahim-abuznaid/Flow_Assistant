@@ -36,7 +36,7 @@ I've successfully implemented a powerful **Build Flow Mode** for your ActivePiec
 2. **Smart Questions** - Asks up to 3 optional clarifications
 3. **Component Searcher** - Finds pieces from database + knowledge base
 4. **Web Researcher** - Searches online for missing info
-5. **Comprehensive Planner** - Generates detailed guides
+5. **Guide Generator** - Produces detailed flow guides
 
 ### 📚 Documentation
 **Files Created:**
@@ -190,7 +190,7 @@ Added: {{trigger.file.createdTime}}
          │
          ▼
 ┌─────────────────┐
-│  Flow Planner   │
+│ Guide Generator │
 │    (GPT-5)      │  ← Synthesizes info
 └────────┬────────┘    Web search if needed
          │            Formats guide

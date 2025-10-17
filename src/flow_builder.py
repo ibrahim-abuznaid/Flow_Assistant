@@ -239,7 +239,7 @@ Now analyze the user's request above."""
         Returns:
             Comprehensive flow building guide
         """
-        # Prepare context for the planner
+        # Prepare context for the guide generator
         context = f"""
 USER REQUEST: {user_request}
 

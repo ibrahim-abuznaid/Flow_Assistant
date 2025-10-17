@@ -148,8 +148,8 @@ npm run dev
 Flow_Assistant/
 ├── src/                        # Main application code
 │   ├── main.py                # FastAPI application
-│   ├── agent.py               # LLM agent with planning
-│   ├── planner.py             # Query planning layer (GPT-5)
+│   ├── agent.py               # LLM agent
+│   ├── flow_builder.py        # Flow guide generator
 │   ├── tools.py               # Tool definitions
 │   ├── db_config.py           # Database configuration
 │   ├── memory.py              # Conversation memory
@@ -157,7 +157,6 @@ Flow_Assistant/
 │
 ├── tests/                      # Test suite
 │   ├── test_assistant.py      # Main test suite
-│   ├── test_planner.py        # Planning layer tests
 │   └── test_sessions.py       # Session management tests
 │
 ├── docs/                       # Documentation

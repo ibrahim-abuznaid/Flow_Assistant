@@ -133,7 +133,6 @@ python tests/test_assistant.py
 
 ### Core Features
 - ✅ AI Assistant with LLM
-- ✅ Planning layer (GPT-5)
 - ✅ Vector search (FAISS)
 - ✅ SQLite database
 - ✅ Session management
@@ -181,7 +180,6 @@ python scripts/migration/rebuild_faiss_enhanced.py
 |------|----------|
 | Main app | `src/main.py` |
 | Agent | `src/agent.py` |
-| Planner | `src/planner.py` |
 | Tools | `src/tools.py` |
 | Database | `src/db_config.py` |
 | Tests | `tests/` |

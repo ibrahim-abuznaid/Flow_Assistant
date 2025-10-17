@@ -236,7 +236,7 @@ Build Flow Mode uses a specialized pipeline:
    - Uses FAISS vector store for semantic search
    - Retrieves detailed piece information
 
-3. **Flow Planner** (GPT-5)
+3. **Guide Generator** (GPT-5)
    - Synthesizes all information
    - Creates comprehensive guide
    - Uses web search if needed

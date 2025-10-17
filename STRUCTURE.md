@@ -9,8 +9,8 @@ Contains all the core Python application code.
 
 **Files:**
 - `main.py` - FastAPI application with API endpoints
-- `agent.py` - LLM agent configuration with planning integration
-- `planner.py` - GPT-5 powered query planning layer
+- `agent.py` - LLM agent configuration
+- `flow_builder.py` - GPT-5 powered flow guide generator
 - `tools.py` - Tool definitions (database search, semantic search, web search)
 - `db_config.py` - Database connection and configuration
 - `memory.py` - Conversation memory and session management
@@ -30,16 +30,12 @@ All test files for validating functionality.
 
 **Files:**
 - `test_assistant.py` - Main test suite for the assistant
-- `test_planner.py` - Tests for the planning layer
 - `test_sessions.py` - Session management tests
 
 **How to run:**
 ```bash
 # Run main test suite
 python tests/test_assistant.py
-
-# Test planning layer
-python tests/test_planner.py
 
 # Test from root using run.py
 python run.py  # Select option 4
@@ -78,9 +74,6 @@ All documentation organized by category.
 - `BUILD_COMPLETE.md` - Build completion summary
 - `COMPLETE_ENHANCEMENT_SUMMARY.md` - Enhancement summary
 - `ENHANCED_AGENT_SUMMARY.md` - Enhanced agent features
-- `ENABLE_PLANNING_LAYER.md` - Planning layer activation
-- `PLANNING_LAYER_GUIDE.md` - Planning layer documentation
-- `PLANNER_IMPROVEMENTS_SUMMARY.md` - Planner improvements
 - `GPT5_UPDATE_SUMMARY.md` - GPT-5 integration summary
 - `REAL_TIME_STATUS_FEATURE.md` - Real-time status updates
 - `STOP_FUNCTIONALITY_GUIDE.md` - Stop functionality guide

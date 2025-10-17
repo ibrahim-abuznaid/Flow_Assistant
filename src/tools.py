@@ -6,6 +6,7 @@ import requests
 from typing import Optional, List, Dict, Any
 from src.db_config import get_db_cursor
 from src.activepieces_db import ActivepiecesDB
+from src.query_utils import generate_query_variants, normalize_query
 
 
 # Global variables for caching
@@ -126,13 +127,18 @@ def find_piece_by_name(name: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def find_action_by_name(action_name: str) -> List[Dict[str, str]]:
+def find_action_by_name(action_name: str, limit: int = 50) -> List[Dict[str, str]]:
     """Find which pieces have an action with the given name from SQLite database."""
     action_lower = action_name.lower()
     
     try:
         with ActivepiecesDB() as db:
-            results = db.search_actions(action_lower, limit=50)
+            try:
+                max_results = int(limit)
+            except (TypeError, ValueError):
+                max_results = 50
+            max_results = max(1, min(max_results, 50))
+            results = db.search_actions(action_lower, limit=max_results)
             
             # Convert to expected format
             return [
@@ -149,7 +155,7 @@ def find_action_by_name(action_name: str) -> List[Dict[str, str]]:
         return []
 
 
-def find_trigger_by_name(trigger_name: str) -> List[Dict[str, str]]:
+def find_trigger_by_name(trigger_name: str, limit: int = 50) -> List[Dict[str, str]]:
     """Find which pieces have a trigger with the given name from SQLite database."""
     trigger_lower = trigger_name.lower()
     
@@ -158,6 +164,11 @@ def find_trigger_by_name(trigger_name: str) -> List[Dict[str, str]]:
             # Use the search functionality - search in actions will also find triggers
             # Since the helper doesn't have a search_triggers method, we'll query directly
             with get_db_cursor() as cur:
+                try:
+                    max_results = int(limit)
+                except (TypeError, ValueError):
+                    max_results = 50
+                max_results = max(1, min(max_results, 50))
                 cur.execute("""
                     SELECT 
                         p.display_name as piece,
@@ -169,8 +180,8 @@ def find_trigger_by_name(trigger_name: str) -> List[Dict[str, str]]:
                         LOWER(t.display_name) LIKE ? 
                         OR LOWER(t.name) LIKE ?
                     ORDER BY p.display_name, t.display_name
-                    LIMIT 50
-                """, (f'%{trigger_lower}%', f'%{trigger_lower}%'))
+                    LIMIT ?
+                """, (f'%{trigger_lower}%', f'%{trigger_lower}%', max_results))
                 
                 results = cur.fetchall()
                 
@@ -187,6 +198,384 @@ def find_trigger_by_name(trigger_name: str) -> List[Dict[str, str]]:
     except Exception as e:
         print(f"Error finding triggers: {e}")
         return []
+
+
+def list_piece_actions_and_triggers(piece_name: str) -> str:
+    """Return formatted list of all actions and triggers for a specific piece."""
+    if not piece_name or not piece_name.strip():
+        return "Please provide the name of an integration/piece to look up."
+
+    normalized_name = piece_name.strip()
+
+    try:
+        piece = find_piece_by_name(normalized_name)
+    except Exception as exc:  # pragma: no cover - defensive path for DB issues
+        return (
+            f"⚠️ Database connection failed while looking up '{normalized_name}'."
+            "\nPlease verify the database is accessible and try again."
+        )
+
+    if not piece:
+        return (
+            f"✗ No ActivePieces integration matched '{normalized_name}'."
+            "\nTry another name or confirm the piece exists in your workspace."
+        )
+
+    display_name = piece.get('displayName') or normalized_name
+    description = (piece.get('description') or '').strip()
+    actions = piece.get('actions') or []
+    triggers = piece.get('triggers') or []
+
+    lines = [f"{display_name} actions and triggers"]
+    if description:
+        lines.append(description)
+
+    if actions:
+        lines.append("")
+        lines.append(f"Actions ({len(actions)}):")
+        for action in actions:
+            title = (action.get('displayName') or action.get('name') or '').strip()
+            if not title:
+                title = "Unnamed action"
+            action_desc = (action.get('description') or '').strip()
+            if action_desc:
+                lines.append(f"- {title}: {action_desc}")
+            else:
+                lines.append(f"- {title}")
+    else:
+        lines.append("")
+        lines.append("Actions: None available.")
+
+    if triggers:
+        lines.append("")
+        lines.append(f"Triggers ({len(triggers)}):")
+        for trigger in triggers:
+            title = (trigger.get('displayName') or trigger.get('name') or '').strip()
+            if not title:
+                title = "Unnamed trigger"
+            trigger_desc = (trigger.get('description') or '').strip()
+            if trigger_desc:
+                lines.append(f"- {title}: {trigger_desc}")
+            else:
+                lines.append(f"- {title}")
+    else:
+        lines.append("")
+        lines.append("Triggers: None available.")
+
+    return "\n".join(lines).strip()
+
+
+def list_action_inputs(piece_name: str, action_name: str) -> str:
+    """Return input schema for a specific action of a piece."""
+    if not piece_name or not piece_name.strip() or not action_name or not action_name.strip():
+        return "Please provide both the integration name and the action name."
+
+    piece_query = piece_name.strip()
+    action_query = action_name.strip()
+
+    try:
+        piece = find_piece_by_name(piece_query)
+    except Exception:
+        return (
+            f"⚠️ Database connection failed while looking up '{piece_query}'."
+            "\nPlease verify the database is accessible and try again."
+        )
+
+    if not piece:
+        return (
+            f"✗ No ActivePieces integration matched '{piece_query}'."
+            "\nDouble-check the integration name and try again."
+        )
+
+    canonical_piece_name = piece.get('name') or piece_query
+
+    try:
+        with ActivepiecesDB() as db:
+            detailed_piece = db.get_piece_details(canonical_piece_name.lower())
+    except Exception:
+        return (
+            f"⚠️ Failed to load action details for '{piece_query}'."
+            "\nPlease ensure the database is accessible."
+        )
+
+    if not detailed_piece:
+        return (
+            f"✗ Unable to load detailed metadata for integration '{piece_query}'."
+            "\nIt may have been removed or renamed in the database."
+        )
+
+    actions = detailed_piece.get('actions') or []
+    action_lower = action_query.lower()
+
+    matched_action = None
+    for action in actions:
+        display = (action.get('display_name') or action.get('displayName') or '').strip()
+        slug = (action.get('name') or '').strip()
+        if display.lower() == action_lower or slug.lower() == action_lower:
+            matched_action = action
+            break
+
+    if not matched_action:
+        for action in actions:
+            display = (action.get('display_name') or action.get('displayName') or '').strip().lower()
+            if action_lower in display and display:
+                matched_action = action
+                break
+
+    if not matched_action:
+        available_names = sorted(
+            {
+                (a.get('display_name') or a.get('displayName') or a.get('name') or '').strip()
+                for a in actions
+                if (a.get('display_name') or a.get('displayName') or a.get('name'))
+            }
+        )
+        if available_names:
+            available = ", ".join(name for name in available_names if name)
+        else:
+            available = ""
+        if available:
+            return (
+                f"The integration '{piece.get('displayName') or canonical_piece_name}' does not have an action matching '{action_query}'."
+                f"\nAvailable actions include: {available}"
+            )
+        return (
+            f"The integration '{piece.get('displayName') or canonical_piece_name}' has no registered actions."
+        )
+
+    action_slug = (matched_action.get('name') or '').strip()
+    action_display_name = (
+        matched_action.get('display_name')
+        or matched_action.get('displayName')
+        or action_slug
+        or action_query
+    ).strip()
+    action_description = (matched_action.get('description') or '').strip()
+
+    if not action_slug:
+        return (
+            f"Unable to locate the internal identifier for action '{action_display_name}'."
+            "\nPlease try another action."
+        )
+
+    try:
+        with ActivepiecesDB() as db:
+            inputs = db.get_action_inputs(canonical_piece_name.lower(), action_slug)
+    except Exception:
+        return (
+            f"⚠️ Failed to retrieve inputs for '{action_display_name}'."
+            "\nPlease ensure the database is accessible."
+        )
+
+    lines = [f"{piece.get('displayName') or canonical_piece_name} – {action_display_name} inputs"]
+    if action_description:
+        lines.append(action_description)
+
+    if not inputs:
+        lines.append("")
+        lines.append("This action has no configurable inputs.")
+        return "\n".join(lines).strip()
+
+    lines.append("")
+    for prop in inputs:
+        display = (prop.get('display_name') or prop.get('name') or '').strip() or 'Unnamed input'
+        input_type = (prop.get('type') or 'unknown').strip()
+        required = bool(prop.get('required'))
+        description = (prop.get('description') or '').strip()
+        default_value = prop.get('default_value')
+
+        requirement = 'required' if required else 'optional'
+        lines.append(f"- {display} [{requirement}, {input_type}]")
+        if description:
+            lines.append(f"  {description}")
+        if default_value not in (None, ""):
+            lines.append(f"  Default: {default_value}")
+    
+    return "\n".join(lines).strip()
+
+
+def search_piece_catalog(query: str = "", auth_type: str = "", limit: int = 10) -> str:
+    """Search the pieces catalog with optional auth type filtering."""
+    try:
+        limit_value = int(limit)
+    except (TypeError, ValueError):
+        limit_value = 10
+    limit_value = max(1, min(limit_value, 50))
+
+    search_query = (query or "").strip()
+    auth_display = (auth_type or "").strip()
+    auth_filter = auth_display.lower()
+
+    try:
+        with ActivepiecesDB() as db:
+            results: List[Dict[str, Any]]
+            if search_query:
+                results = db.search_pieces(search_query, limit=limit_value)
+            else:
+                results = db.get_all_pieces()
+                if auth_filter:
+                    results = [
+                        row for row in results
+                        if (row.get('auth_type') or '').lower() == auth_filter
+                    ]
+                results = results[:limit_value]
+
+            if auth_filter and search_query:
+                results = [
+                    row for row in results
+                    if (row.get('auth_type') or '').lower() == auth_filter
+                ]
+    except Exception:
+        return "⚠️ Failed to query the pieces catalog. Please confirm database connectivity."
+
+    if not results:
+        scope = f" with auth type '{auth_display or auth_filter}'" if auth_filter else ""
+        if search_query:
+            return f"No pieces matched '{search_query}'{scope}."
+        return f"No pieces found{scope}."
+
+    if search_query and auth_filter:
+        header = f"Pieces matching '{search_query}' (auth type: {auth_display}):"
+    elif search_query:
+        header = f"Pieces matching '{search_query}':"
+    elif auth_filter:
+        header = f"Pieces (auth type: {auth_display}):"
+    else:
+        header = "Pieces catalog results:"
+
+    lines = [header]
+    for idx, row in enumerate(results, 1):
+        display = row.get('display_name') or row.get('name') or 'Unnamed piece'
+        auth_label = row.get('auth_type') or 'No Auth'
+        action_count = row.get('action_count') if row.get('action_count') is not None else len(row.get('actions', []) or [])
+        trigger_count = row.get('trigger_count') if row.get('trigger_count') is not None else len(row.get('triggers', []) or [])
+        description = (row.get('description') or '').strip()
+        lines.append(f"{idx}. {display} — auth: {auth_label}, {action_count} actions, {trigger_count} triggers")
+        if description:
+            lines.append(f"   {description}")
+
+    return "\n".join(lines).strip()
+
+
+def get_top_pieces_overview(limit: int = 10) -> str:
+    """List the most capable pieces ordered by total actions and triggers."""
+    try:
+        limit_value = int(limit)
+    except (TypeError, ValueError):
+        limit_value = 10
+    limit_value = max(1, min(limit_value, 50))
+
+    try:
+        with ActivepiecesDB() as db:
+            rows = db.get_top_pieces(limit_value)
+    except Exception:
+        return "⚠️ Unable to load top pieces overview. Please check database connectivity."
+
+    if not rows:
+        return "No pieces with actions or triggers were found."
+
+    lines = ["Most capable pieces:"]
+    for idx, row in enumerate(rows, 1):
+        display = row.get('display_name') or 'Unnamed piece'
+        auth_label = row.get('auth_type') or 'No Auth'
+        action_count = row.get('action_count') or 0
+        trigger_count = row.get('trigger_count') or 0
+        total = row.get('total_capabilities') or (action_count + trigger_count)
+        lines.append(f"{idx}. {display} — auth: {auth_label}, actions: {action_count}, triggers: {trigger_count}, total: {total}")
+
+    return "\n".join(lines).strip()
+
+
+def list_pieces_by_auth_type(auth_type: str, limit: int = 25) -> str:
+    """List pieces that use a specific authentication type."""
+    if not auth_type or not auth_type.strip():
+        return "Please provide an authentication type (e.g., OAuth2, ApiKey, SecretText)."
+
+    try:
+        limit_value = int(limit)
+    except (TypeError, ValueError):
+        limit_value = 25
+    limit_value = max(1, min(limit_value, 100))
+
+    auth_filter = auth_type.strip().lower()
+
+    try:
+        with get_db_cursor() as cur:
+            cur.execute(
+                """
+                SELECT display_name, auth_type, action_count, trigger_count
+                FROM pieces_with_capabilities
+                WHERE LOWER(auth_type) = ?
+                ORDER BY (action_count + trigger_count) DESC, display_name
+                LIMIT ?
+                """,
+                (auth_filter, limit_value),
+            )
+            rows = cur.fetchall()
+    except Exception:
+        return "⚠️ Failed to load pieces by authentication type. Please verify the database connection."
+
+    if not rows:
+        return f"No pieces found with auth type '{auth_type}'."
+
+    lines = [f"Pieces using auth type '{auth_type}':"]
+    for idx, row in enumerate(rows, 1):
+        display = row['display_name'] or 'Unnamed piece'
+        action_count = row['action_count'] or 0
+        trigger_count = row['trigger_count'] or 0
+        lines.append(f"{idx}. {display} — {action_count} actions, {trigger_count} triggers")
+
+    return "\n".join(lines).strip()
+
+
+def search_actions_by_keyword(keyword: str, limit: int = 10) -> str:
+    """Search for actions across pieces by keyword."""
+    if not keyword or not keyword.strip():
+        return "Please provide a keyword to search for actions."
+
+    try:
+        results = find_action_by_name(keyword, limit=limit)
+    except Exception:
+        return "⚠️ Failed to search actions. Please verify the database connection."
+
+    if not results:
+        return f"No actions matched '{keyword}'."
+
+    lines = [f"Actions matching '{keyword}':"]
+    for idx, action in enumerate(results, 1):
+        title = action.get('action') or 'Unnamed action'
+        piece_name = action.get('piece') or 'Unknown integration'
+        description = (action.get('description') or '').strip()
+        lines.append(f"{idx}. {title} — in {piece_name}")
+        if description:
+            lines.append(f"   {description}")
+
+    return "\n".join(lines).strip()
+
+
+def search_triggers_by_keyword(keyword: str, limit: int = 10) -> str:
+    """Search for triggers across pieces by keyword."""
+    if not keyword or not keyword.strip():
+        return "Please provide a keyword to search for triggers."
+
+    try:
+        results = find_trigger_by_name(keyword, limit=limit)
+    except Exception:
+        return "⚠️ Failed to search triggers. Please verify the database connection."
+
+    if not results:
+        return f"No triggers matched '{keyword}'."
+
+    lines = [f"Triggers matching '{keyword}':"]
+    for idx, trigger in enumerate(results, 1):
+        title = trigger.get('trigger') or 'Unnamed trigger'
+        piece_name = trigger.get('piece') or 'Unknown integration'
+        description = (trigger.get('description') or '').strip()
+        lines.append(f"{idx}. {title} — in {piece_name}")
+        if description:
+            lines.append(f"   {description}")
+
+    return "\n".join(lines).strip()
 
 
 def check_activepieces(query: str) -> str:
@@ -279,19 +668,69 @@ def search_activepieces_docs(query: str) -> str:
         Relevant information from the knowledge base
     """
     try:
+        normalized_query = normalize_query(query)
+        if not normalized_query:
+            return "No query provided for documentation search."
+
+        try:
+            per_variant_k = max(1, int(os.getenv("DOC_SEARCH_PER_VARIANT", "4")))
+        except ValueError:
+            per_variant_k = 4
+
+        try:
+            max_results = max(1, int(os.getenv("DOC_SEARCH_MAX_RESULTS", "8")))
+        except ValueError:
+            max_results = 8
+
         vector_store = get_vector_store()
-        results = vector_store.similarity_search(query, k=6)
-        
-        if not results:
+        query_variants = generate_query_variants(normalized_query)
+
+        aggregated: Dict[str, Dict[str, Any]] = {}
+
+        for variant in query_variants:
+            try:
+                variant_results = vector_store.similarity_search_with_score(variant, k=per_variant_k)
+            except AttributeError:
+                # Fallback if the vector store implementation does not support returning scores
+                raw_results = vector_store.similarity_search(variant, k=per_variant_k)
+                variant_results = [(doc, None) for doc in raw_results]
+
+            for doc, score in variant_results:
+                key = f"{doc.metadata.get('source', '')}|{doc.page_content[:200]}"
+                stored = aggregated.get(key)
+                if stored is None or (
+                    score is not None
+                    and (stored["score"] is None or score < stored["score"])
+                ):
+                    aggregated[key] = {
+                        "doc": doc,
+                        "score": score,
+                        "variant": variant,
+                    }
+
+        if not aggregated:
             return "No relevant information found in the knowledge base."
-        
-        # Format results
+
+        ranked_results = sorted(
+            aggregated.values(),
+            key=lambda item: item["score"] if item["score"] is not None else float("inf")
+        )
+
         snippets = []
-        for i, doc in enumerate(results, 1):
-            snippets.append(f"Result {i}:\n{doc.page_content}\n")
-        
-        return "\n".join(snippets)
-    
+        snippets.append("Query variants (query fusion):")
+        for variant in query_variants:
+            snippets.append(f"- {variant}")
+        snippets.append("")
+
+        for i, item in enumerate(ranked_results[:max_results], 1):
+            doc = item["doc"]
+            score = item["score"]
+            variant = item["variant"]
+            score_text = f"Score: {score:.4f}\n" if isinstance(score, (int, float)) else ""
+            snippets.append(f"Result {i} (query variant: {variant})\n{score_text}{doc.page_content}\n")
+
+        return "\n".join(snippets).strip()
+
     except Exception as e:
         return f"Error searching knowledge base: {str(e)}"
 
@@ -640,6 +1079,68 @@ def get_all_tools():
         return check_activepieces(query)
     
     @tool
+    def list_piece_actions_and_triggers_tool(piece_name: str) -> str:
+        """List all actions and triggers for an ActivePieces integration.
+        
+        Args:
+            piece_name (str): Display name or slug of the integration (e.g., 'Slack')"""
+        return list_piece_actions_and_triggers(piece_name)
+    
+    @tool
+    def list_action_inputs_tool(piece_name: str, action_name: str) -> str:
+        """List the input fields required for a specific action within an integration.
+        
+        Args:
+            piece_name (str): Display name or slug of the integration (e.g., 'Slack')
+            action_name (str): Display name or slug of the action (e.g., 'Send Message')"""
+        return list_action_inputs(piece_name, action_name)
+    
+    @tool
+    def search_piece_catalog_tool(query: str = "", auth_type: str = "", limit: int = 10) -> str:
+        """Search the catalog of integrations with optional auth-type filtering.
+        
+        Args:
+            query (str): Keywords to match (e.g., 'CRM')
+            auth_type (str): Optional authentication type filter (e.g., 'OAuth2')
+            limit (int): Maximum number of results to return"""
+        return search_piece_catalog(query=query, auth_type=auth_type, limit=limit)
+    
+    @tool
+    def get_top_pieces_overview_tool(limit: int = 10) -> str:
+        """Highlight the integrations with the largest number of actions and triggers.
+        
+        Args:
+            limit (int): Maximum number of pieces to list"""
+        return get_top_pieces_overview(limit=limit)
+    
+    @tool
+    def list_pieces_by_auth_type_tool(auth_type: str, limit: int = 25) -> str:
+        """List integrations that use a specific authentication mechanism.
+        
+        Args:
+            auth_type (str): Authentication type (e.g., 'OAuth2', 'ApiKey')
+            limit (int): Maximum number of pieces to list"""
+        return list_pieces_by_auth_type(auth_type, limit=limit)
+    
+    @tool
+    def search_actions_by_keyword_tool(keyword: str, limit: int = 10) -> str:
+        """Search across all integrations for actions matching the provided keyword.
+        
+        Args:
+            keyword (str): Action keyword (e.g., 'create task')
+            limit (int): Maximum number of actions to return"""
+        return search_actions_by_keyword(keyword, limit=limit)
+    
+    @tool
+    def search_triggers_by_keyword_tool(keyword: str, limit: int = 10) -> str:
+        """Search across all integrations for triggers matching the provided keyword.
+        
+        Args:
+            keyword (str): Trigger keyword (e.g., 'new message')
+            limit (int): Maximum number of triggers to return"""
+        return search_triggers_by_keyword(keyword, limit=limit)
+    
+    @tool
     def search_activepieces_docs_tool(query: str) -> str:
         """Search the ActivePieces knowledge base for information about actions, triggers, and their properties.
         
@@ -663,7 +1164,19 @@ def get_all_tools():
             context (str): Type of code - 'api_call', 'data_transform', or 'general'"""
         return get_code_generation_guidelines(context)
     
-    return [check_activepieces_tool, search_activepieces_docs_tool, web_search_tool, get_code_generation_guidelines_tool]
+    return [
+        check_activepieces_tool,
+        list_piece_actions_and_triggers_tool,
+        list_action_inputs_tool,
+        search_piece_catalog_tool,
+        get_top_pieces_overview_tool,
+        list_pieces_by_auth_type_tool,
+        search_actions_by_keyword_tool,
+        search_triggers_by_keyword_tool,
+        search_activepieces_docs_tool,
+        web_search_tool,
+        get_code_generation_guidelines_tool,
+    ]
 
 
 # Export all tools (for backward compatibility, lazy)

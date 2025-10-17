@@ -45,10 +45,9 @@ Flow_Assistant/
 │   ├── LICENSE                   # MIT License
 │   └── env.example               # Environment template
 │
-├── 📁 src/ (9 files)
+├── 📁 src/ (8 files)
 │   ├── main.py                   # FastAPI app
 │   ├── agent.py                  # LLM agent
-│   ├── planner.py                # Planning layer
 │   ├── tools.py                  # Tools
 │   ├── flow_builder.py           # Flow builder
 │   └── ...
@@ -79,9 +78,8 @@ Flow_Assistant/
 │   │   ├── DEPLOYMENT_GUIDE.md
 │   │   └── ...
 │   │
-│   ├── 📂 features/ (20+ files)
+│   ├── 📂 features/ (15+ files)
 │   │   ├── ai_assistant_build_guide.md
-│   │   ├── PLANNING_LAYER_GUIDE.md
 │   │   └── 📂 code-generation/ (14 files)
 │   │
 │   ├── 📂 troubleshooting/ (12 files)

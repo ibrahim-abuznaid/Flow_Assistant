@@ -20,7 +20,6 @@ Flow_Assistant/
 ├── DEPLOYMENT_GUIDE_INDEX.md
 ├── DEPLOYMENT.md
 ├── EASY_DEPLOYMENT_GUIDE.md
-├── ENABLE_PLANNING_LAYER.md
 ├── ENHANCED_AGENT_SUMMARY.md
 ├── FAISS_LOADING_FIX.md
 ├── FIX_DATABASE_CONNECTION.md
@@ -28,23 +27,18 @@ Flow_Assistant/
 ├── FIX_MODEL_ERROR.md
 ├── GET_STARTED.md
 ├── GITHUB_SETUP.md
-├── GPT5_UPDATE_SUMMARY.md
 ├── INSTALLATION.md
 ├── llm_config.py
 ├── main.py
 ├── memory.py
 ├── MIGRATION_COMPLETE.md
 ├── migrate_to_sqlite.py
-├── planner.py
-├── PLANNING_LAYER_GUIDE.md
-├── PLANNER_IMPROVEMENTS_SUMMARY.md
 ├── POSTGRES_MIGRATION.md
 ├── prepare_knowledge_base.py
 ├── PROJECT_OVERVIEW.md
 ├── PROJECT_SUMMARY.md
 ├── PYTHON_3.13_FIX.md
 ├── QUICK_START_PRODUCTION.md
-├── QUICK_TEST_IMPROVEMENTS.md
 ├── QUICKSTART.md
 ├── REAL_TIME_STATUS_FEATURE.md
 ├── rebuild_faiss_enhanced.py
@@ -55,7 +49,6 @@ Flow_Assistant/
 ├── SQLITE_MIGRATION_SUMMARY.md
 ├── STOP_FUNCTIONALITY_GUIDE.md
 ├── test_assistant.py
-├── test_planner.py
 ├── tools.py
 ├── TROUBLESHOOTING.md
 └── ... (50+ files!)
@@ -69,19 +62,17 @@ Flow_Assistant/
 ```
 Flow_Assistant/
 │
-├── 📁 src/                     ⭐ All Python source code (8 files)
+├── 📁 src/                     ⭐ All Python source code (7 files)
 │   ├── main.py                # FastAPI app
 │   ├── agent.py               # LLM agent
-│   ├── planner.py             # Query planner
 │   ├── tools.py               # Tools
 │   ├── db_config.py           # Database
 │   ├── memory.py              # Memory
 │   ├── llm_config.py          # LLM config
 │   └── __init__.py
 │
-├── 📁 tests/                   ⭐ All test files (3 files)
+├── 📁 tests/                   ⭐ All test files (2 files)
 │   ├── test_assistant.py
-│   ├── test_planner.py
 │   └── test_sessions.py
 │
 ├── 📁 docs/                    ⭐ All documentation (42 files)
@@ -225,7 +216,6 @@ These files have been updated with new paths:
 - ✅ `src/tools.py`
 - ✅ `src/memory.py`
 - ✅ `tests/test_assistant.py`
-- ✅ `tests/test_planner.py`
 - ✅ `demo_enhanced_agent.py`
 - ✅ `.gitignore`
 - ✅ `README.md`

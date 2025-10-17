@@ -238,19 +238,17 @@ Flow_Assistant/
 │   ├── LICENSE
 │   └── env.example
 │
-├── 📁 src/ (8 Python files)
+├── 📁 src/ (7 Python files)
 │   ├── main.py
 │   ├── agent.py
-│   ├── planner.py
 │   ├── tools.py
 │   ├── db_config.py
 │   ├── memory.py
 │   ├── llm_config.py
 │   └── __init__.py
 │
-├── 📁 tests/ (3 test files)
+├── 📁 tests/ (2 test files)
 │   ├── test_assistant.py
-│   ├── test_planner.py
 │   └── test_sessions.py
 │
 ├── 📁 docs/ (60+ documents!)

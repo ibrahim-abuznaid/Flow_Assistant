@@ -37,10 +37,9 @@ Flow_Assistant/
 ## 📁 New Directory Structure
 
 ### `/src/` - Main Application Code
-**8 files** - All core Python application code
+**7 files** - All core Python application code
 - `main.py` - FastAPI application
-- `agent.py` - LLM agent with planning
-- `planner.py` - Query planning layer
+- `agent.py` - LLM agent
 - `tools.py` - Tool definitions
 - `db_config.py` - Database configuration
 - `memory.py` - Conversation memory
@@ -48,9 +47,8 @@ Flow_Assistant/
 - `__init__.py` - Package initialization
 
 ### `/tests/` - Test Suite
-**3 files** - All test files
+**2 files** - Core test files
 - `test_assistant.py` - Main test suite
-- `test_planner.py` - Planning layer tests
 - `test_sessions.py` - Session management tests
 
 ### `/docs/` - Documentation
@@ -201,7 +199,6 @@ The following have been automatically updated with new paths:
 - ✅ `src/tools.py` - Updated imports
 - ✅ `src/memory.py` - Updated paths
 - ✅ `tests/test_assistant.py` - Updated imports
-- ✅ `tests/test_planner.py` - Updated imports
 - ✅ `demo_enhanced_agent.py` - Updated paths
 
 ### Configuration Files

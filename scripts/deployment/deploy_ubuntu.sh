@@ -256,9 +256,6 @@ OPENAI_API_KEY=$OPENAI_KEY
 MODEL_PROVIDER=openai
 MODEL_NAME=gpt-4o
 
-# Planning Layer Model
-PLANNER_MODEL=gpt-4o-mini
-
 # Flow Builder Model
 FLOW_BUILDER_MODEL=gpt-4o-mini
 

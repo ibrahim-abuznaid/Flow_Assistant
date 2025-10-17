@@ -3,7 +3,7 @@ Memory management for session-based chat history.
 """
 import json
 import os
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from datetime import datetime
 from langchain.memory import ConversationBufferMemory
 from langchain.schema import HumanMessage, AIMessage
@@ -165,6 +165,51 @@ def create_memory(session_id: Optional[str] = None) -> ConversationBufferMemory:
             print(f"✓ Created new session {session_id}")
     
     return memory
+
+
+def serialize_memory_to_chat_history(memory: Optional[ConversationBufferMemory], limit: int = 10) -> List[Dict[str, str]]:
+    """Convert ConversationBufferMemory into a serializable chat history list."""
+    history: List[Dict[str, str]] = []
+
+    if not memory or not hasattr(memory, "chat_memory"):
+        return history
+
+    messages = getattr(memory.chat_memory, "messages", [])
+    if limit and limit > 0:
+        messages = messages[-limit:]
+
+    for message in messages:
+        role = getattr(message, "type", "")
+        if role == "human":
+            role_label = "user"
+        elif role == "ai":
+            role_label = "assistant"
+        elif role == "system":
+            role_label = "system"
+        else:
+            role_label = role or "assistant"
+
+        content: Any = getattr(message, "content", "")
+        if isinstance(content, list):
+            parts = []
+            for part in content:
+                if isinstance(part, dict):
+                    parts.append(str(part.get("text") or part.get("content") or ""))
+                else:
+                    parts.append(str(part))
+            content_text = " ".join(part for part in parts if part).strip()
+        else:
+            content_text = str(content).strip()
+
+        if not content_text:
+            continue
+
+        if len(content_text) > 600:
+            content_text = content_text[:597] + "..."
+
+        history.append({"role": role_label, "content": content_text})
+
+    return history
 
 
 def log_interaction(user_message: str, assistant_message: str, session_id: Optional[str] = None):

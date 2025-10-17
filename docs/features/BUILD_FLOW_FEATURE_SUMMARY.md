@@ -31,7 +31,7 @@ Created a comprehensive flow building system:
 - ✅ **Component Search**: Finds required pieces from database
 - ✅ **Knowledge Search**: Retrieves relevant docs from FAISS vector store
 - ✅ **Web Search**: Searches online for missing information
-- ✅ **Comprehensive Planner**: Generates detailed, actionable guides
+- ✅ **Guide Generator**: Produces detailed, actionable guides
 
 ### 4. **Documentation**
 
@@ -85,7 +85,7 @@ Component Searcher
     ├── FAISS Vector Store (semantic search)
     └── Knowledge Base Context
     ↓
-Flow Planner (GPT-5)
+Guide Generator (GPT-5)
     ├── Synthesizes all information
     ├── Web search if needed
     └── Generates comprehensive guide

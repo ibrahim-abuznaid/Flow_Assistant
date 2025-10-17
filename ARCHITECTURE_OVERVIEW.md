@@ -161,7 +161,7 @@ Understanding what you're deploying and how all the pieces fit together.
 #### b) Agent System (`agent.py`)
 - LangChain agent with tool calling
 - Conversation memory (per-session)
-- Planning layer integration
+- Streamlined decision logic
 - Tool execution orchestration
 
 **Agent Configuration**:
@@ -170,19 +170,12 @@ Understanding what you're deploying and how all the pieces fit together.
 - Handles parsing errors gracefully
 - Verbose logging
 
-#### c) Planning Layer (`planner.py`)
-- Query analysis and planning
-- GPT-5-mini model
-- Determines optimal tool usage
-- Prevents unnecessary tool calls
-- Efficiency-focused
-
-**Planning Features**:
-- Query type detection (piece/action/trigger/howto)
-- Tool selection guidance
-- Max tool call limits
-- Stopping conditions
-- Fallback strategies
+#### c) Flow Builder (`flow_builder.py`)
+- Specialized workflow guide generator
+- GPT-5-mini powered planning for Build Flow Mode
+- Searches pieces, actions, and triggers
+- Performs optional web research for missing info
+- Outputs detailed step-by-step guides
 
 #### d) Tool System (`tools.py`)
 - **check_activepieces**: Verify if pieces/actions/triggers exist

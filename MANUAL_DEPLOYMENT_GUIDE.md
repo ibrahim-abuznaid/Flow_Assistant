@@ -372,9 +372,6 @@ MODEL_NAME=gpt-4o
 # OpenAI API Key (REQUIRED)
 OPENAI_API_KEY=sk-your-actual-openai-key-here
 
-# Planning Layer Model
-PLANNER_MODEL=gpt-5-mini
-
 # Flow Builder Model
 FLOW_BUILDER_MODEL=gpt-5-mini
 

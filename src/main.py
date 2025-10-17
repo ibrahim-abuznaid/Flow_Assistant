@@ -13,8 +13,18 @@ from queue import Queue
 from threading import Thread
 from typing import Any, Dict, Optional
 
-from src.agent import get_agent, run_agent_with_planning, clear_agent_cache
-from src.memory import log_interaction, clear_history, get_all_sessions, load_session, clear_session
+from src.agent import get_agent, clear_agent_cache
+from src.general_responder import generate_general_response
+from src.memory import (
+    log_interaction,
+    clear_history,
+    get_all_sessions,
+    load_session,
+    clear_session,
+    create_memory,
+    serialize_memory_to_chat_history,
+)
+from src.query_utils import is_activepieces_query
 
 # Load environment variables
 load_dotenv()
@@ -51,7 +61,6 @@ class ChatRequest(BaseModel):
     message: str
     session_id: Optional[str] = None
     build_flow_mode: Optional[bool] = False
-    thinking_mode: Optional[bool] = True  # Default True for backward compatibility
 
 
 class ChatResponse(BaseModel):
@@ -65,6 +74,27 @@ class ErrorResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     message: str
+
+
+def _get_recent_history_messages(session_id: Optional[str], limit: int = 8) -> list[str]:
+    """Fetch up to `limit` most recent message strings for context-aware routing."""
+    if not session_id:
+        return []
+
+    try:
+        session_data = load_session(session_id)
+    except Exception:
+        return []
+
+    if not session_data:
+        return []
+
+    messages = session_data.get("messages", [])
+    if not messages:
+        return []
+
+    recent = messages[-limit:]
+    return [msg.get("message", "") for msg in recent if msg.get("message")]
 
 
 # Custom callback handler for tracking agent status
@@ -192,24 +222,26 @@ async def chat(request: ChatRequest):
     
     user_message = request.message.strip()
     session_id = request.session_id
-    thinking_mode = request.thinking_mode
+    build_flow_mode = request.build_flow_mode
+    history_context = _get_recent_history_messages(session_id)
+    is_ap_query = is_activepieces_query(user_message, history=history_context)
     
     try:
         print(f"\n{'='*60}")
         print(f"User: {user_message}")
-        print(f"Thinking Mode: {'ON' if thinking_mode else 'OFF'}")
+        print(f"Build Flow Mode: {build_flow_mode}")
         print(f"{'='*60}")
-        
-        if thinking_mode:
-            # Use planning layer + enhanced agent
-            agent = get_agent(session_id=session_id, use_planning=True)
-            result = run_agent_with_planning(user_message, agent, session_id=session_id)
-            assistant_reply = result.get("output", "I apologize, but I couldn't generate a response.")
-        else:
-            # Use direct agent (no planning) - faster execution
-            agent = get_agent(session_id=session_id, use_planning=False)
-            result = agent.invoke({"input": user_message})
-            assistant_reply = result.get("output", "I apologize, but I couldn't generate a response.")
+
+        if not is_ap_query:
+            print("Detected general query - using lightweight responder")
+            assistant_reply = generate_general_response(user_message, session_id=session_id)
+            print(f"\nAssistant (general): {assistant_reply}")
+            print(f"{'='*60}\n")
+            log_interaction(user_message, assistant_reply, session_id=session_id)
+            return {"reply": assistant_reply}
+        agent = get_agent(session_id=session_id)
+        result = agent.invoke({"input": user_message})
+        assistant_reply = result.get("output", "I apologize, but I couldn't generate a response.")
         
         print(f"\nAssistant: {assistant_reply}")
         print(f"{'='*60}\n")
@@ -238,7 +270,44 @@ async def chat_stream(request: ChatRequest):
     user_message = request.message.strip()
     user_session_id = request.session_id  # Capture session_id from request
     build_flow_mode = request.build_flow_mode  # Capture build_flow_mode from request
-    thinking_mode = request.thinking_mode  # Capture thinking_mode from request
+    history_context = _get_recent_history_messages(user_session_id)
+    is_ap_query = is_activepieces_query(user_message, history=history_context)
+
+    if not is_ap_query:
+        print(f"\n{'='*60}")
+        print(f"User: {user_message}")
+        print(f"Build Flow Mode: {build_flow_mode}")
+        print("Detected general query - answering without workflow tools")
+        print(f"{'='*60}")
+        async def general_event_generator():
+            status_payload = {
+                "type": "status",
+                "message": "�Y'� Answering directly...",
+                "tool": None
+            }
+            yield f"data: {json.dumps(status_payload, ensure_ascii=False)}\n\n"
+
+            try:
+                reply = generate_general_response(user_message, session_id=user_session_id)
+            except Exception as e:
+                reply = f"Sorry, I couldn't generate an answer because: {e}"
+
+            log_interaction(user_message, reply, session_id=user_session_id)
+
+            print(f"\nAssistant (general): {reply}")
+            print(f"{'='*60}\n")
+
+            done_payload = {"type": "done", "reply": reply}
+            yield f"data: {json.dumps(done_payload, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(
+            general_event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            }
+        )
     
     async def event_generator():
         from threading import Event
@@ -281,27 +350,38 @@ async def chat_stream(request: ChatRequest):
                 print(f"\n{'='*60}")
                 print(f"User: {user_message}")
                 print(f"Build Flow Mode: {build_flow_mode}")
-                print(f"Thinking Mode: {'ON' if thinking_mode else 'OFF'}")
                 print(f"{'='*60}")
                 
-                # Check if Build Flow mode is enabled
                 if build_flow_mode:
-                    # Use the specialized flow builder
                     from src.flow_builder import build_flow
-                    
-                    # Send status updates
+
                     status_queue.put({"type": "status", "message": "🚀 Starting Flow Builder...", "tool": None})
                     status_queue.put({"type": "status", "message": "🔍 Analyzing your flow request...", "tool": None})
-                    
-                    # Build the flow
-                    flow_result = build_flow(user_message)
-                    
-                    # Check if there are clarifying questions
+
+                    contextual_request = user_message
+                    if user_session_id:
+                        try:
+                            memory_snapshot = create_memory(session_id=user_session_id)
+                            history_items = serialize_memory_to_chat_history(memory_snapshot, limit=8)
+                        except Exception:
+                            history_items = []
+
+                        if history_items:
+                            formatted_history = "\n".join(
+                                f"{item['role'].upper()}: {item['content']}"
+                                for item in history_items
+                            )
+                            contextual_request = (
+                                "Continue assisting the user based on this conversation history:\n"
+                                f"{formatted_history}\n\n"
+                                f"Latest user request: {user_message}\n"
+                                "Provide an updated or additional flow guide that respects the ongoing context."
+                            )
+
+                    flow_result = build_flow(contextual_request)
                     clarifying_questions = flow_result.get("clarifying_questions", [])
-                    
                     assistant_reply = flow_result.get("guide", "I apologize, but I couldn't generate a flow guide.")
-                    
-                    # Add clarifying questions note if any exist and are optional
+
                     if clarifying_questions:
                         optional_questions = [q for q in clarifying_questions if q.get("optional", True)]
                         if optional_questions:
@@ -309,84 +389,44 @@ async def chat_stream(request: ChatRequest):
                             for i, q in enumerate(optional_questions, 1):
                                 questions_text += f"{i}. {q.get('question', '')}\n"
                             assistant_reply += questions_text
-                    
+
                     result_container["output"] = assistant_reply
-                    
+
                     print(f"\nFlow Guide Generated (length: {len(assistant_reply)})")
                     print(f"{'='*60}\n")
-                    
-                    # Log the interaction
+
                     log_interaction(user_message, assistant_reply, session_id=user_session_id)
-                    
-                    # Signal completion
                     enqueue_reply(assistant_reply)
-                    
+
                 else:
-                    # Standard mode - use agent based on thinking_mode
-                    # Create callback handler with cancellation support
                     callback = StatusCallbackHandler(status_queue, cancellation_event)
-                    
-                    # Send initial status
                     status_queue.put({"type": "status", "message": "🚀 Starting...", "tool": None})
-                    
-                    if thinking_mode:
-                        # THINKING MODE ON: Use planning layer + enhanced agent
-                        # Get the agent with planning support
-                        agent = get_agent(session_id=user_session_id, use_planning=True)
-                        
-                        # Add planning status
-                        status_queue.put({"type": "status", "message": "🧠 Planning query execution...", "tool": None})
-                        
-                        # Import planner for guided input
-                        from src.planner import create_guided_input
-                        guided_input = create_guided_input(user_message)
-                        
-                        # Execute agent with enhanced input and callbacks
-                        result = agent.invoke(
-                            {"input": guided_input["enhanced_input"]},
-                            config={"callbacks": [callback]}
-                        )
-                    else:
-                        # THINKING MODE OFF: Use direct agent (faster, no planning)
-                        # Get the direct agent
-                        agent = get_agent(session_id=user_session_id, use_planning=False)
-                        
-                        # Skip planning, go straight to execution
-                        status_queue.put({"type": "status", "message": "💭 Processing query...", "tool": None})
-                        
-                        # Execute agent directly with user message and callbacks
-                        result = agent.invoke(
-                            {"input": user_message},
-                            config={"callbacks": [callback]}
-                        )
-                    
+                    status_queue.put({"type": "status", "message": "🤖 Processing query...", "tool": None})
+
+                    agent = get_agent(session_id=user_session_id)
+                    result = agent.invoke({"input": user_message}, config={"callbacks": [callback]})
+
                     assistant_reply = result.get("output", "I apologize, but I couldn't generate a response.")
                     result_container["output"] = assistant_reply
-                    
+
                     print(f"\nAssistant: {assistant_reply}")
                     print(f"{'='*60}\n")
-                    
-                    # Log the interaction (with original query and session_id)
+
                     log_interaction(user_message, assistant_reply, session_id=user_session_id)
-                    
-                    # Signal completion
                     enqueue_reply(assistant_reply)
-                
+
             except CancellationException:
-                # Request was cancelled - don't log as error
-                print(f"✓ Agent execution stopped successfully")
+                print("✓ Agent execution stopped successfully")
                 status_queue.put({"type": "cancelled", "message": "Request cancelled"})
-                
+
             except Exception as e:
-                # Check if it's a cancellation-related error
                 if "cancel" in str(e).lower() or cancellation_event.is_set():
-                    print(f"✓ Agent execution stopped successfully")
+                    print("✓ Agent execution stopped successfully")
                     status_queue.put({"type": "cancelled", "message": "Request cancelled"})
                 else:
-                    print(f"\n❌ Error: {str(e)}\n")
+                    print(f"\n⚠️ Error: {str(e)}\n")
                     result_container["error"] = str(e)
                     status_queue.put({"type": "error", "message": str(e)})
-        
         # Start agent in background thread
         agent_thread = Thread(target=run_agent, daemon=True)
         agent_thread.start()
@@ -576,4 +616,3 @@ if __name__ == "__main__":
         port=8000,
         reload=True
     )
-

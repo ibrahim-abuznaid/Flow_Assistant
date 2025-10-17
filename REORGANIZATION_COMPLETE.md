@@ -45,10 +45,9 @@ Flow_Assistant/
 │   ├── LICENSE                   # MIT License
 │   └── env.example               # Environment template
 │
-├── 📁 src/ (9 files)
+├── 📁 src/ (8 files)
 │   ├── main.py                   # FastAPI app
 │   ├── agent.py                  # LLM agent
-│   ├── planner.py                # Planning layer
 │   ├── tools.py                  # Tools
 │   ├── flow_builder.py           # Flow builder
 │   └── ...

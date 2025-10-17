@@ -167,11 +167,10 @@ Contains:
 
 ### Your Project Components:
 
-✅ **Backend (FastAPI + Python)**
-- Analyzed: `src/main.py`, `src/agent.py`, `src/tools.py`, `src/planner.py`
+- Analyzed: `src/main.py`, `src/agent.py`, `src/tools.py`
 - Entry point: FastAPI server on port 8000
 - 8 API endpoints
-- LangChain agent with planning layer
+- LangChain agent with tool-routing logic
 - 4 tools: database check, RAG search, web search, code guidelines
 - Session-based memory system
 
@@ -360,7 +359,7 @@ By following this guide, you'll learn:
 │   ├── main.py                    # FastAPI app
 │   ├── agent.py                   # LangChain agent
 │   ├── tools.py                   # Agent tools
-│   ├── planner.py                 # Planning layer
+│   ├── flow_builder.py            # Flow guide generator
 │   ├── memory.py                  # Session management
 │   └── ...
 │

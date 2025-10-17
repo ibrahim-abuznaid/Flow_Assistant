@@ -197,7 +197,6 @@ Your Flow Assistant is now ready to use with the new database! The AI agent can:
 - ✅ `src/agent.py` - No changes needed (uses tools.py)
 - ✅ `src/main.py` - No changes needed
 - ✅ `src/memory.py` - No changes needed
-- ✅ `src/planner.py` - No changes needed
 - ✅ `frontend/` - No changes needed
 
 ---

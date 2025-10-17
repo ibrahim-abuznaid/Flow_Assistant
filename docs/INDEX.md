@@ -47,12 +47,6 @@ Complete guide to all documentation in the Flow Assistant project.
 - **[ENHANCED_AGENT_SUMMARY.md](features/ENHANCED_AGENT_SUMMARY.md)** - Enhanced agent features
 - **[COMPLETE_ENHANCEMENT_SUMMARY.md](features/COMPLETE_ENHANCEMENT_SUMMARY.md)** - All enhancements
 
-#### Planning & Intelligence
-- **[PLANNING_LAYER_GUIDE.md](features/PLANNING_LAYER_GUIDE.md)** - Query planning system
-- **[ENABLE_PLANNING_LAYER.md](features/ENABLE_PLANNING_LAYER.md)** - Enable planning layer
-- **[PLANNER_IMPROVEMENTS_SUMMARY.md](features/PLANNER_IMPROVEMENTS_SUMMARY.md)** - Planner improvements
-- **[GPT5_UPDATE_SUMMARY.md](features/GPT5_UPDATE_SUMMARY.md)** - GPT-5 integration
-
 #### UI & Interaction
 - **[REAL_TIME_STATUS_FEATURE.md](features/REAL_TIME_STATUS_FEATURE.md)** - Real-time status updates
 - **[STOP_FUNCTIONALITY_GUIDE.md](features/STOP_FUNCTIONALITY_GUIDE.md)** - Stop functionality
@@ -78,7 +72,6 @@ Complete guide to all documentation in the Flow Assistant project.
 - **[BUILD_FLOW_FEATURE_SUMMARY.md](features/BUILD_FLOW_FEATURE_SUMMARY.md)** - Build flow features
 - **[IMPLEMENTATION_COMPLETE.md](features/IMPLEMENTATION_COMPLETE.md)** - Implementation complete
 - **[IMPLEMENTATION_SUMMARY.md](features/IMPLEMENTATION_SUMMARY.md)** - Implementation summary
-- **[QUICK_TEST_IMPROVEMENTS.md](features/QUICK_TEST_IMPROVEMENTS.md)** - Test improvements
 - **[AGENT_CONNECTION_GUIDE.md](features/AGENT_CONNECTION_GUIDE.md)** - Agent-DB connection
 
 ### 5. Troubleshooting & Fixes (`/docs/troubleshooting/`)
@@ -131,7 +124,6 @@ Complete guide to all documentation in the Flow Assistant project.
 | **Migrate database** | [migration/SQLITE_MIGRATION_SUMMARY.md](migration/SQLITE_MIGRATION_SUMMARY.md) |
 | **Test the agent** | [features/AGENT_TEST_GUIDE.md](features/AGENT_TEST_GUIDE.md) |
 | **Setup web search** | [quick-start/OPENAI_WEB_SEARCH_SETUP.md](quick-start/OPENAI_WEB_SEARCH_SETUP.md) |
-| **Understand planning layer** | [features/PLANNING_LAYER_GUIDE.md](features/PLANNING_LAYER_GUIDE.md) |
 
 ---
 
@@ -171,7 +163,6 @@ docs/
 │
 ├── features/                 # Features & capabilities
 │   ├── ai_assistant_build_guide.md
-│   ├── PLANNING_LAYER_GUIDE.md
 │   └── code-generation/      # Code generation feature
 │       └── ...
 │
