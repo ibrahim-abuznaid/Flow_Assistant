@@ -129,7 +129,7 @@ def create_direct_agent(session_id: Optional[str] = None) -> AgentExecutor:
         memory=memory,
         verbose=True,
         handle_parsing_errors=True,
-        max_iterations=40,
+        max_iterations=60,
         max_execution_time=120,
         return_intermediate_steps=False
     )

@@ -1,6 +1,21 @@
 """
 Flow Builder - Specialized module for building comprehensive ActivePieces workflows.
 This module provides intelligent flow building with clarification questions and detailed plans.
+
+Database Integration:
+- 450 pieces (integrations) from ActivePieces API
+- 2,890 actions with full input/output specifications
+- 834 triggers with configuration details
+- SQLite database with FTS5 full-text search
+- Complete property metadata for all actions and triggers
+
+Features:
+- Three-phase flow analysis (analyze → search → build)
+- Parallel component search using ThreadPoolExecutor
+- AI-first detection (Text AI, Utility AI, Image AI, Video AI)
+- RAG-enhanced recommendations from vector store
+- GPT-5 powered comprehensive planning
+- Adaptive model selection based on complexity
 """
 import os
 import json
@@ -27,6 +42,18 @@ class FlowBuilder:
     """
     Specialized flow builder that creates comprehensive, step-by-step workflow guides.
     Uses GPT-5 for advanced reasoning about workflow construction.
+    
+    This builder leverages a comprehensive SQLite database with:
+    - 450 ActivePieces integrations (pieces)
+    - 2,890 actions with complete specifications
+    - 834 triggers with full configurations
+    - Full-text search (FTS5) for fast lookups
+    - Complete input/output property metadata
+    
+    The builder uses a three-phase approach:
+    1. Analyze: Understand user request and identify requirements
+    2. Search: Find relevant pieces, actions, and triggers in parallel
+    3. Build: Generate comprehensive step-by-step flow guide
     """
     
     def __init__(self, model: str = "gpt-5-mini"):
@@ -440,6 +467,12 @@ class FlowBuilder:
             Dictionary with flow analysis and clarification questions
         """
         analysis_prompt = f"""You are an expert workflow automation analyst for ActivePieces.
+
+You have access to a comprehensive database with:
+- 450 pieces (integrations)
+- 2,890 actions
+- 834 triggers
+- Complete metadata including all input properties and configurations
 
 Analyze this flow building request and determine:
 1. What the user wants to accomplish (trigger → actions)
@@ -972,11 +1005,20 @@ FOUND COMPONENTS:
         # Build the comprehensive plan
         planning_prompt = f"""You are an expert ActivePieces workflow architect. Create a COMPREHENSIVE, DETAILED, and ACTIONABLE flow building guide.
 
+DATABASE CAPABILITIES:
+- 450 pieces (integrations) with full metadata
+- 2,890 actions with complete input/output specifications
+- 834 triggers with configuration details
+- Full-text search enabled across all components
+- Complete property definitions for all actions and triggers
+
 {context}
 
 IMPORTANT FLOW BUILDER RULES:
 - ALWAYS use native ActivePieces AI utilities (Text AI, Utility AI, Image AI, Video AI) for AI tasks. They provide direct access to OpenAI GPT-4/5, Google Gemini, and Anthropic Claude models without custom API calls.
 - When the user names a specific model (e.g., "GPT-5"), explain how to select that model inside the relevant ActivePieces action instead of building an HTTP request.
+- The database provides comprehensive information about all pieces - leverage this for accurate guidance.
+- All action/trigger input properties are documented in the database - include them in your guides.
 - Only suggest HTTP Request or custom code after confirming no native or alternative piece exists and documenting the knowledge-base suggestions you've already checked.
 
 Create a powerful, step-by-step guide that includes:
@@ -1130,14 +1172,23 @@ def get_flow_builder() -> FlowBuilder:
 
 def build_flow(user_request: str, user_answers: Optional[str] = None) -> Dict[str, Any]:
     """
-    Main function to build a comprehensive flow guide.
+    Main function to build a comprehensive flow guide using the ActivePieces database.
+    
+    This function orchestrates a three-phase process:
+    1. Analyze: Parse user request and identify requirements
+    2. Search: Query database (450 pieces, 2,890 actions, 834 triggers) in parallel
+    3. Build: Generate detailed, step-by-step implementation guide
     
     Args:
         user_request: The user's flow building request
         user_answers: Optional answers to clarifying questions
         
     Returns:
-        Dictionary with flow guide and metadata
+        Dictionary with flow guide and metadata:
+        - guide: Comprehensive markdown guide
+        - analysis: Flow analysis with complexity/confidence
+        - components: Found pieces, actions, triggers
+        - clarifying_questions: Optional questions for user
     """
     builder = get_flow_builder()
     
