@@ -101,12 +101,24 @@ def find_piece_by_name(name: str) -> Optional[Dict[str, Any]]:
             # Try exact match first
             piece = db.get_piece_details(name_lower)
             
-            # If no exact match, try searching
+            # If no exact match, try with @activepieces/piece- prefix
             if not piece:
-                results = db.search_pieces(name_lower, limit=1)
+                piece = db.get_piece_details(f'@activepieces/piece-{name_lower}')
+            
+            # If still no match, search and find best match
+            if not piece:
+                results = db.search_pieces(name_lower, limit=10)
                 if results:
-                    piece_name = results[0]['name']
-                    piece = db.get_piece_details(piece_name)
+                    # Try to find exact display name match first
+                    for result in results:
+                        if result['display_name'].lower() == name_lower:
+                            piece = db.get_piece_details(result['name'])
+                            break
+                    
+                    # If no exact match, use first result
+                    if not piece and results:
+                        piece_name = results[0]['name']
+                        piece = db.get_piece_details(piece_name)
             
             if not piece:
                 return None
@@ -202,20 +214,26 @@ def find_trigger_by_name(trigger_name: str, limit: int = 50) -> List[Dict[str, s
 
 def list_piece_actions_and_triggers(piece_name: str) -> str:
     """Return formatted list of all actions and triggers for a specific piece."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
     if not piece_name or not piece_name.strip():
         return "Please provide the name of an integration/piece to look up."
 
     normalized_name = piece_name.strip()
+    logger.info(f"[list_piece_actions_and_triggers] Looking up piece: {normalized_name}")
 
     try:
         piece = find_piece_by_name(normalized_name)
     except Exception as exc:  # pragma: no cover - defensive path for DB issues
+        logger.error(f"[list_piece_actions_and_triggers] Database error: {exc}")
         return (
             f"⚠️ Database connection failed while looking up '{normalized_name}'."
             "\nPlease verify the database is accessible and try again."
         )
 
     if not piece:
+        logger.warning(f"[list_piece_actions_and_triggers] No piece found for: {normalized_name}")
         return (
             f"✗ No ActivePieces integration matched '{normalized_name}'."
             "\nTry another name or confirm the piece exists in your workspace."
@@ -225,6 +243,8 @@ def list_piece_actions_and_triggers(piece_name: str) -> str:
     description = (piece.get('description') or '').strip()
     actions = piece.get('actions') or []
     triggers = piece.get('triggers') or []
+    
+    logger.info(f"[list_piece_actions_and_triggers] Found {display_name}: {len(actions)} actions, {len(triggers)} triggers")
 
     lines = [f"{display_name} actions and triggers"]
     if description:
@@ -261,7 +281,8 @@ def list_piece_actions_and_triggers(piece_name: str) -> str:
     else:
         lines.append("")
         lines.append("Triggers: None available.")
-
+    
+    logger.info(f"[list_piece_actions_and_triggers] Returning {len(lines)} lines of output")
     return "\n".join(lines).strip()
 
 
@@ -667,10 +688,21 @@ def search_activepieces_docs(query: str) -> str:
     Returns:
         Relevant information from the knowledge base
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     try:
+        # Validate query parameter
+        if not query or not isinstance(query, str):
+            logger.warning(f"[search_activepieces_docs] Invalid query parameter: {query}")
+            return "Error: Query parameter is required for documentation search. Please provide a search query."
+        
         normalized_query = normalize_query(query)
         if not normalized_query:
-            return "No query provided for documentation search."
+            logger.warning(f"[search_activepieces_docs] Empty query after normalization")
+            return "Error: Query cannot be empty. Please provide a valid search query."
+        
+        logger.info(f"[search_activepieces_docs] Searching for: {normalized_query}")
 
         try:
             per_variant_k = max(1, int(os.getenv("DOC_SEARCH_PER_VARIANT", "4")))
@@ -682,8 +714,12 @@ def search_activepieces_docs(query: str) -> str:
         except ValueError:
             max_results = 8
 
+        logger.info(f"[search_activepieces_docs] Loading vector store...")
         vector_store = get_vector_store()
+        
+        logger.info(f"[search_activepieces_docs] Generating query variants...")
         query_variants = generate_query_variants(normalized_query)
+        logger.info(f"[search_activepieces_docs] Query variants: {query_variants}")
 
         aggregated: Dict[str, Dict[str, Any]] = {}
 
@@ -709,12 +745,15 @@ def search_activepieces_docs(query: str) -> str:
                     }
 
         if not aggregated:
+            logger.info(f"[search_activepieces_docs] No results found for query: {normalized_query}")
             return "No relevant information found in the knowledge base."
 
         ranked_results = sorted(
             aggregated.values(),
             key=lambda item: item["score"] if item["score"] is not None else float("inf")
         )
+        
+        logger.info(f"[search_activepieces_docs] Found {len(ranked_results)} results")
 
         snippets = []
         snippets.append("Query variants (query fusion):")
@@ -728,10 +767,12 @@ def search_activepieces_docs(query: str) -> str:
             variant = item["variant"]
             score_text = f"Score: {score:.4f}\n" if isinstance(score, (int, float)) else ""
             snippets.append(f"Result {i} (query variant: {variant})\n{score_text}{doc.page_content}\n")
-
+        
+        logger.info(f"[search_activepieces_docs] Returning {len(snippets)} lines of results")
         return "\n".join(snippets).strip()
 
     except Exception as e:
+        logger.error(f"[search_activepieces_docs] Error: {str(e)}", exc_info=True)
         return f"Error searching knowledge base: {str(e)}"
 
 
@@ -1141,11 +1182,13 @@ def get_all_tools():
         return search_triggers_by_keyword(keyword, limit=limit)
     
     @tool
-    def search_activepieces_docs_tool(query: str) -> str:
+    def search_activepieces_docs_tool(query: str = "") -> str:
         """Search the ActivePieces knowledge base for information about actions, triggers, and their properties.
         
         Args:
             query (str): The question or topic to search for (e.g., 'Slack send message input properties')"""
+        if not query:
+            return "Error: Please provide a search query. For example: 'how to send email' or 'Slack actions'."
         return search_activepieces_docs(query)
     
     @tool

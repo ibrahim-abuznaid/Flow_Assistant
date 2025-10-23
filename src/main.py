@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 import os
 import json
 import asyncio
+import logging
 from queue import Queue
 from threading import Thread
 from typing import Any, Dict, Optional
@@ -28,6 +29,14 @@ from src.query_utils import is_activepieces_query
 
 # Load environment variables
 load_dotenv()
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] %(levelname)s %(name)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
 # Create FastAPI app
 app = FastAPI(
@@ -347,6 +356,11 @@ async def chat_stream(request: ChatRequest):
 
         def run_agent():
             try:
+                logger.info(f"{'='*60}")
+                logger.info(f"User message: {user_message}")
+                logger.info(f"Session ID: {user_session_id}")
+                logger.info(f"Build Flow Mode: {build_flow_mode}")
+                logger.info(f"{'='*60}")
                 print(f"\n{'='*60}")
                 print(f"User: {user_message}")
                 print(f"Build Flow Mode: {build_flow_mode}")
@@ -403,11 +417,20 @@ async def chat_stream(request: ChatRequest):
                     status_queue.put({"type": "status", "message": "🚀 Starting...", "tool": None})
                     status_queue.put({"type": "status", "message": "🤖 Processing query...", "tool": None})
 
+                    logger.info("Getting agent instance...")
                     agent = get_agent(session_id=user_session_id)
+                    
+                    logger.info("Invoking agent with message...")
                     result = agent.invoke({"input": user_message}, config={"callbacks": [callback]})
+                    
+                    logger.info(f"Agent execution complete")
+                    logger.debug(f"Agent result keys: {result.keys()}")
 
                     assistant_reply = result.get("output", "I apologize, but I couldn't generate a response.")
                     result_container["output"] = assistant_reply
+                    
+                    logger.info(f"Assistant reply length: {len(assistant_reply)}")
+                    logger.debug(f"Assistant reply preview: {assistant_reply[:200]}...")
 
                     print(f"\nAssistant: {assistant_reply}")
                     print(f"{'='*60}\n")
@@ -575,8 +598,8 @@ async def get_stats():
         import os
         from datetime import datetime
         
-        # Connect to the activepieces database
-        db_path = os.path.join('activepieces-pieces-db', 'activepieces-pieces.db')
+        # Connect to the new activepieces database
+        db_path = os.path.join('data', 'activepieces.db')
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
@@ -597,7 +620,7 @@ async def get_stats():
             "total_actions": total_actions,
             "total_triggers": total_triggers,
             "generated_at": datetime.now().isoformat(),
-            "version": "2.0.0"
+            "version": "3.0.0"
         }
     
     except Exception as e:

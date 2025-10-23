@@ -67,10 +67,10 @@ CODE GENERATION FORMATTING:
 - This ensures code displays properly with syntax highlighting in the UI
 
 Remember: You have access to a comprehensive database with:
-- 433 pieces (integrations)
-- 2,681 actions
-- 694 triggers
-- 10,118 input properties with full details
+- 450 pieces (integrations)
+- 2,890 actions
+- 834 triggers
+- Full metadata including all input properties and configuration details
 
 Be efficient, direct, and helpful. Quality answers within 1-3 tool calls are better than perfect answers that take 10+ calls."""
 

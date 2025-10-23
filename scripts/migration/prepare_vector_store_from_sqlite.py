@@ -32,11 +32,10 @@ def main():
     # Import required libraries
     try:
         import faiss
-        from openai import OpenAI
         from langchain.schema import Document
         from langchain_community.vectorstores import FAISS
         from langchain_community.docstore.in_memory import InMemoryDocstore
-        from langchain.embeddings.base import Embeddings
+        from langchain_openai import OpenAIEmbeddings
         print("✓ Required libraries imported")
     except ImportError as e:
         print(f"❌ ERROR: Missing required library: {e}")
@@ -126,61 +125,18 @@ def main():
         print("❌ ERROR: No documents created")
         return
     
-    # Create custom embeddings class
+    # Create embeddings using langchain's OpenAI embeddings
     print("\n🤖 Creating embeddings...")
     
-    class CustomOpenAIEmbeddings(Embeddings):
-        def __init__(self, api_key: str, model: str = "text-embedding-ada-002"):
-            self.client = OpenAI(api_key=api_key, http_client=None)
-            self.model = model
-        
-        def embed_documents(self, texts: list[str]) -> list[list[float]]:
-            """Embed a list of documents with batching."""
-            # Clean and validate texts
-            clean_texts = []
-            for text in texts:
-                if text and isinstance(text, str):
-                    # Remove any problematic characters and limit length
-                    cleaned = text.strip()[:8000]  # OpenAI limit is 8191 tokens
-                    if cleaned:
-                        clean_texts.append(cleaned)
-                    else:
-                        clean_texts.append("No content")
-                else:
-                    clean_texts.append("No content")
-            
-            # Batch process in chunks of 100 (OpenAI recommendation)
-            all_embeddings = []
-            batch_size = 100
-            
-            for i in range(0, len(clean_texts), batch_size):
-                batch = clean_texts[i:i+batch_size]
-                try:
-                    response = self.client.embeddings.create(
-                        input=batch,
-                        model=self.model
-                    )
-                    all_embeddings.extend([item.embedding for item in response.data])
-                except Exception as e:
-                    print(f"  ⚠️  Warning: Batch {i//batch_size + 1} failed: {e}")
-                    # Add zero vectors for failed batch
-                    all_embeddings.extend([[0.0] * 1536 for _ in batch])
-            
-            return all_embeddings
-        
-        def embed_query(self, text: str) -> list[float]:
-            """Embed a single query."""
-            # Clean the text
-            clean_text = text.strip()[:8000] if text else "query"
-            
-            response = self.client.embeddings.create(
-                input=[clean_text],
-                model=self.model
-            )
-            return response.data[0].embedding
-    
-    embeddings = CustomOpenAIEmbeddings(api_key=api_key)
-    print("✓ Embeddings model initialized")
+    try:
+        embeddings = OpenAIEmbeddings(
+            openai_api_key=api_key,
+            model="text-embedding-ada-002"
+        )
+        print("✓ Embeddings model initialized")
+    except Exception as e:
+        print(f"❌ ERROR: Could not initialize embeddings: {e}")
+        return
     
     # Create FAISS vector store
     print("\n🔍 Creating FAISS vector store...")
