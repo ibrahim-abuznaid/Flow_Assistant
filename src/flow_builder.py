@@ -825,6 +825,17 @@ FOUND COMPONENTS:
 """
         ]
 
+        context_parts.append(
+            "\n✓ FLOW BUILDING FOUNDATIONS:\n"
+            "  - Start every flow with exactly one trigger; it controls when the flow runs.\n"
+            "  - Add actions after the trigger in the order they should execute; each action runs sequentially and the flow finishes once the last action completes.\n"
+            "  - Insert router steps to branch the flow; create as many branches as needed and add filters on each branch to decide when it should execute.\n"
+            "  - Configure branch filters with AND/OR groups so the branch runs only when its conditions are met; after a branch finishes, the flow continues with any steps placed after the router.\n"
+            "  - Use loops when you need to process every item in an array or list; the actions inside the loop repeat once per item in the input collection.\n"
+            "  - Map outputs from previous steps—including trigger data and earlier actions—into later actions; for example, reuse Gmail trigger fields like email text or attachments anywhere downstream.\n"
+            "  - Test each action (and the trigger) as you build to confirm authentication, inputs, and data mappings before adding the next step.\n"
+        )
+
         trigger_info = components.get("trigger")
         trigger_matches = components.get("trigger_matches", [])
         if trigger_info and trigger_info.get("piece"):
@@ -1170,7 +1181,13 @@ def get_flow_builder() -> FlowBuilder:
     return _flow_builder
 
 
-def build_flow(user_request: str, user_answers: Optional[str] = None) -> Dict[str, Any]:
+def build_flow(
+    user_request: str, 
+    user_answers: Optional[str] = None,
+    primary_model: str = "gpt-5-mini",
+    secondary_model: Optional[str] = None,
+    use_dual_models: bool = False
+) -> Dict[str, Any]:
     """
     Main function to build a comprehensive flow guide using the ActivePieces database.
     
@@ -1182,6 +1199,9 @@ def build_flow(user_request: str, user_answers: Optional[str] = None) -> Dict[st
     Args:
         user_request: The user's flow building request
         user_answers: Optional answers to clarifying questions
+        primary_model: Primary model to use (default: gpt-5-mini)
+        secondary_model: Optional secondary model for dual-model mode
+        use_dual_models: Whether to use dual models (one for analysis, one for building)
         
     Returns:
         Dictionary with flow guide and metadata:
@@ -1190,7 +1210,8 @@ def build_flow(user_request: str, user_answers: Optional[str] = None) -> Dict[st
         - components: Found pieces, actions, triggers
         - clarifying_questions: Optional questions for user
     """
-    builder = get_flow_builder()
+    # Create builder with primary model
+    builder = FlowBuilder(model=primary_model)
     
     # Step 1: Analyze the request
     analysis = builder.analyze_flow_request(user_request)
@@ -1199,17 +1220,34 @@ def build_flow(user_request: str, user_answers: Optional[str] = None) -> Dict[st
     components = builder.search_flow_components(analysis)
     
     # Step 3: Build comprehensive plan
-    comprehensive_guide = builder.build_comprehensive_plan(
-        user_request, 
-        analysis, 
-        components, 
-        user_answers
-    )
+    # If dual models enabled and secondary model provided, create a second builder for comprehensive planning
+    if use_dual_models and secondary_model:
+        print(f"🔄 Using dual models: {primary_model} for analysis, {secondary_model} for planning")
+        planning_builder = FlowBuilder(model=secondary_model)
+        comprehensive_guide = planning_builder.build_comprehensive_plan(
+            user_request, 
+            analysis, 
+            components, 
+            user_answers
+        )
+    else:
+        print(f"🤖 Using single model: {primary_model}")
+        comprehensive_guide = builder.build_comprehensive_plan(
+            user_request, 
+            analysis, 
+            components, 
+            user_answers
+        )
     
     return {
         "guide": comprehensive_guide,
         "analysis": analysis,
         "components": components,
-        "clarifying_questions": analysis.get("clarifying_questions", [])
+        "clarifying_questions": analysis.get("clarifying_questions", []),
+        "models_used": {
+            "primary": primary_model,
+            "secondary": secondary_model if use_dual_models else None,
+            "dual_mode": use_dual_models
+        }
     }
 

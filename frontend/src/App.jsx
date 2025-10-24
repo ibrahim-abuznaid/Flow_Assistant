@@ -136,9 +136,15 @@ function App() {
   const [previousSessions, setPreviousSessions] = useState([])
   const [selectedSession, setSelectedSession] = useState(null)
   const [buildFlowMode, setBuildFlowMode] = useState(false)
+  const [primaryModel, setPrimaryModel] = useState('gpt-5-mini')
+  const [secondaryModel, setSecondaryModel] = useState('gpt-5')
+  const [useDualModels, setUseDualModels] = useState(false)
   const messagesEndRef = useRef(null)
   const eventSourceRef = useRef(null)
   const abortControllerRef = useRef(null)
+
+  // Available models
+  const availableModels = ['gpt-5', 'gpt-5-mini', 'gpt-5-nano']
 
   // Scroll to bottom when messages change
   const scrollToBottom = () => {
@@ -273,7 +279,10 @@ function App() {
         body: JSON.stringify({
           message: userMessage,
           session_id: sessionId,
-          build_flow_mode: buildFlowMode
+          build_flow_mode: buildFlowMode,
+          primary_model: primaryModel,
+          secondary_model: useDualModels ? secondaryModel : null,
+          use_dual_models: useDualModels
         }),
         signal: abortControllerRef.current.signal
       })
@@ -550,6 +559,59 @@ function App() {
                 <span className="mode-description">
                   Get comprehensive step-by-step flow building guides
                 </span>
+              )}
+            </div>
+            
+            <div className="model-selection">
+              <div className="model-select-group">
+                <label className="model-label">
+                  🤖 Primary Model:
+                  <select 
+                    value={primaryModel} 
+                    onChange={(e) => setPrimaryModel(e.target.value)}
+                    disabled={isLoading}
+                    className="model-select"
+                  >
+                    {availableModels.map(model => (
+                      <option key={model} value={model}>{model}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              
+              <div className="dual-model-toggle">
+                <label className="toggle-label">
+                  <input
+                    type="checkbox"
+                    checked={useDualModels}
+                    onChange={(e) => setUseDualModels(e.target.checked)}
+                    disabled={isLoading}
+                  />
+                  <span className="toggle-text">
+                    🔀 Use 2 Models
+                  </span>
+                </label>
+              </div>
+              
+              {useDualModels && (
+                <div className="model-select-group secondary-model">
+                  <label className="model-label">
+                    🤖 Secondary Model:
+                    <select 
+                      value={secondaryModel} 
+                      onChange={(e) => setSecondaryModel(e.target.value)}
+                      disabled={isLoading}
+                      className="model-select"
+                    >
+                      {availableModels.map(model => (
+                        <option key={model} value={model}>{model}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <span className="dual-model-hint">
+                    Primary for analysis, Secondary for planning
+                  </span>
+                </div>
               )}
             </div>
           </div>

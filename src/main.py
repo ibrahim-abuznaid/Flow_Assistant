@@ -70,6 +70,9 @@ class ChatRequest(BaseModel):
     message: str
     session_id: Optional[str] = None
     build_flow_mode: Optional[bool] = False
+    primary_model: Optional[str] = "gpt-5-mini"
+    secondary_model: Optional[str] = None
+    use_dual_models: Optional[bool] = False
 
 
 class ChatResponse(BaseModel):
@@ -325,6 +328,11 @@ async def chat_stream(request: ChatRequest):
         result_container = {"output": None, "error": None}
         cancellation_event = Event()  # Used to signal cancellation to agent
         
+        # Capture model parameters from request
+        primary_model = request.primary_model or "gpt-5-mini"
+        secondary_model = request.secondary_model
+        use_dual_models = request.use_dual_models or False
+        
         CHUNK_THRESHOLD = 6000
         CHUNK_SIZE = 3000
 
@@ -392,7 +400,12 @@ async def chat_stream(request: ChatRequest):
                                 "Provide an updated or additional flow guide that respects the ongoing context."
                             )
 
-                    flow_result = build_flow(contextual_request)
+                    flow_result = build_flow(
+                        contextual_request,
+                        primary_model=primary_model,
+                        secondary_model=secondary_model,
+                        use_dual_models=use_dual_models
+                    )
                     clarifying_questions = flow_result.get("clarifying_questions", [])
                     assistant_reply = flow_result.get("guide", "I apologize, but I couldn't generate a flow guide.")
 
