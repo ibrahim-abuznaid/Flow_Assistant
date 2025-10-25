@@ -235,8 +235,6 @@ async def chat(request: ChatRequest):
     user_message = request.message.strip()
     session_id = request.session_id
     build_flow_mode = request.build_flow_mode
-    history_context = _get_recent_history_messages(session_id)
-    is_ap_query = is_activepieces_query(user_message, history=history_context)
     
     try:
         print(f"\n{'='*60}")
@@ -244,13 +242,18 @@ async def chat(request: ChatRequest):
         print(f"Build Flow Mode: {build_flow_mode}")
         print(f"{'='*60}")
 
-        if not is_ap_query:
-            print("Detected general query - using lightweight responder")
-            assistant_reply = generate_general_response(user_message, session_id=session_id)
-            print(f"\nAssistant (general): {assistant_reply}")
-            print(f"{'='*60}\n")
-            log_interaction(user_message, assistant_reply, session_id=session_id)
-            return {"reply": assistant_reply}
+        # If Build Flow Mode is OFF, check if it's a general query
+        if not build_flow_mode:
+            history_context = _get_recent_history_messages(session_id)
+            is_ap_query = is_activepieces_query(user_message, history=history_context)
+            
+            if not is_ap_query:
+                print("Detected general query - using lightweight responder")
+                assistant_reply = generate_general_response(user_message, session_id=session_id)
+                print(f"\nAssistant (general): {assistant_reply}")
+                print(f"{'='*60}\n")
+                log_interaction(user_message, assistant_reply, session_id=session_id)
+                return {"reply": assistant_reply}
         agent = get_agent(session_id=session_id)
         result = agent.invoke({"input": user_message})
         assistant_reply = result.get("output", "I apologize, but I couldn't generate a response.")
@@ -282,44 +285,48 @@ async def chat_stream(request: ChatRequest):
     user_message = request.message.strip()
     user_session_id = request.session_id  # Capture session_id from request
     build_flow_mode = request.build_flow_mode  # Capture build_flow_mode from request
-    history_context = _get_recent_history_messages(user_session_id)
-    is_ap_query = is_activepieces_query(user_message, history=history_context)
+    
+    # If Build Flow Mode is enabled, ALWAYS use the flow builder (skip general responder)
+    # Only check if it's an ActivePieces query if Build Flow Mode is OFF
+    if not build_flow_mode:
+        history_context = _get_recent_history_messages(user_session_id)
+        is_ap_query = is_activepieces_query(user_message, history=history_context)
+        
+        if not is_ap_query:
+            print(f"\n{'='*60}")
+            print(f"User: {user_message}")
+            print(f"Build Flow Mode: {build_flow_mode}")
+            print("Detected general query - answering without workflow tools")
+            print(f"{'='*60}")
+            async def general_event_generator():
+                status_payload = {
+                    "type": "status",
+                    "message": "💭 Answering directly...",
+                    "tool": None
+                }
+                yield f"data: {json.dumps(status_payload, ensure_ascii=False)}\n\n"
 
-    if not is_ap_query:
-        print(f"\n{'='*60}")
-        print(f"User: {user_message}")
-        print(f"Build Flow Mode: {build_flow_mode}")
-        print("Detected general query - answering without workflow tools")
-        print(f"{'='*60}")
-        async def general_event_generator():
-            status_payload = {
-                "type": "status",
-                "message": "�Y'� Answering directly...",
-                "tool": None
-            }
-            yield f"data: {json.dumps(status_payload, ensure_ascii=False)}\n\n"
+                try:
+                    reply = generate_general_response(user_message, session_id=user_session_id)
+                except Exception as e:
+                    reply = f"Sorry, I couldn't generate an answer because: {e}"
 
-            try:
-                reply = generate_general_response(user_message, session_id=user_session_id)
-            except Exception as e:
-                reply = f"Sorry, I couldn't generate an answer because: {e}"
+                log_interaction(user_message, reply, session_id=user_session_id)
 
-            log_interaction(user_message, reply, session_id=user_session_id)
+                print(f"\nAssistant (general): {reply}")
+                print(f"{'='*60}\n")
 
-            print(f"\nAssistant (general): {reply}")
-            print(f"{'='*60}\n")
+                done_payload = {"type": "done", "reply": reply}
+                yield f"data: {json.dumps(done_payload, ensure_ascii=False)}\n\n"
 
-            done_payload = {"type": "done", "reply": reply}
-            yield f"data: {json.dumps(done_payload, ensure_ascii=False)}\n\n"
-
-        return StreamingResponse(
-            general_event_generator(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-            }
-        )
+            return StreamingResponse(
+                general_event_generator(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                }
+            )
     
     async def event_generator():
         from threading import Event
@@ -406,16 +413,7 @@ async def chat_stream(request: ChatRequest):
                         secondary_model=secondary_model,
                         use_dual_models=use_dual_models
                     )
-                    clarifying_questions = flow_result.get("clarifying_questions", [])
                     assistant_reply = flow_result.get("guide", "I apologize, but I couldn't generate a flow guide.")
-
-                    if clarifying_questions:
-                        optional_questions = [q for q in clarifying_questions if q.get("optional", True)]
-                        if optional_questions:
-                            questions_text = "\n\n---\n\n**💡 Optional Clarifications** (you can provide these for more specific guidance):\n\n"
-                            for i, q in enumerate(optional_questions, 1):
-                                questions_text += f"{i}. {q.get('question', '')}\n"
-                            assistant_reply += questions_text
 
                     result_container["output"] = assistant_reply
 

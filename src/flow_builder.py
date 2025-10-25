@@ -1,9 +1,12 @@
 """
 Flow Builder - Specialized module for building comprehensive ActivePieces workflows.
-This module provides intelligent flow building with clarification questions and detailed plans.
+
+ActivePieces is a workflow automation platform that allows users to create automated workflows
+by connecting different services and applications through a visual flow builder. This module
+helps users build flows for the ActivePieces platform with intelligent guidance and detailed plans.
 
 Database Integration:
-- 450 pieces (integrations) from ActivePieces API
+- 450 ActivePieces pieces (integrations) from ActivePieces API
 - 2,890 actions with full input/output specifications
 - 834 triggers with configuration details
 - SQLite database with FTS5 full-text search
@@ -16,6 +19,7 @@ Features:
 - RAG-enhanced recommendations from vector store
 - GPT-5 powered comprehensive planning
 - Adaptive model selection based on complexity
+- Context-aware guide generation for ActivePieces platform
 """
 import os
 import json
@@ -466,15 +470,17 @@ class FlowBuilder:
         Returns:
             Dictionary with flow analysis and clarification questions
         """
-        analysis_prompt = f"""You are an expert workflow automation analyst for ActivePieces.
+        analysis_prompt = f"""You are an expert workflow automation analyst for ActivePieces, a powerful workflow automation platform.
 
-You have access to a comprehensive database with:
-- 450 pieces (integrations)
-- 2,890 actions
-- 834 triggers
+IMPORTANT: This analysis is for building automation workflows in ActivePieces platform - a visual workflow builder where users connect different services and applications.
+
+You have access to a comprehensive ActivePieces database with:
+- 450 pieces (integrations like Gmail, Slack, Google Sheets, etc.)
+- 2,890 actions (operations you can perform)
+- 834 triggers (events that start a flow)
 - Complete metadata including all input properties and configurations
 
-Analyze this flow building request and determine:
+Analyze this ActivePieces flow building request and determine:
 1. What the user wants to accomplish (trigger → actions)
 2. What information is clear vs unclear
 3. What clarifying questions would help (max 3, keep them optional)
@@ -1014,10 +1020,19 @@ FOUND COMPONENTS:
         context = "\n".join(context_parts)
         
         # Build the comprehensive plan
-        planning_prompt = f"""You are an expert ActivePieces workflow architect. Create a COMPREHENSIVE, DETAILED, and ACTIONABLE flow building guide.
+        planning_prompt = f"""You are an expert ActivePieces workflow architect. Create a COMPREHENSIVE, DETAILED, and ACTIONABLE flow building guide for the ActivePieces automation platform.
+
+ABOUT ACTIVEPIECES:
+ActivePieces is a powerful workflow automation platform (similar to Zapier or Make.com) that allows users to build automated workflows by connecting different services and applications. Users create flows in the ActivePieces visual flow builder by:
+1. Adding a trigger (what starts the flow)
+2. Adding actions (what happens when the flow runs)
+3. Connecting pieces (integrations) together
+4. Mapping data between steps
+
+Your guide should help users build this flow directly in their ActivePieces instance.
 
 DATABASE CAPABILITIES:
-- 450 pieces (integrations) with full metadata
+- 450 ActivePieces pieces (integrations) with full metadata
 - 2,890 actions with complete input/output specifications
 - 834 triggers with configuration details
 - Full-text search enabled across all components
@@ -1025,33 +1040,42 @@ DATABASE CAPABILITIES:
 
 {context}
 
-IMPORTANT FLOW BUILDER RULES:
+IMPORTANT ACTIVEPIECES FLOW BUILDER RULES:
+- ALWAYS specify that this is for building in ActivePieces platform
 - ALWAYS use native ActivePieces AI utilities (Text AI, Utility AI, Image AI, Video AI) for AI tasks. They provide direct access to OpenAI GPT-4/5, Google Gemini, and Anthropic Claude models without custom API calls.
 - When the user names a specific model (e.g., "GPT-5"), explain how to select that model inside the relevant ActivePieces action instead of building an HTTP request.
-- The database provides comprehensive information about all pieces - leverage this for accurate guidance.
+- The database provides comprehensive information about all ActivePieces pieces - leverage this for accurate guidance.
 - All action/trigger input properties are documented in the database - include them in your guides.
-- Only suggest HTTP Request or custom code after confirming no native or alternative piece exists and documenting the knowledge-base suggestions you've already checked.
+- Only suggest HTTP Request or custom code after confirming no native or alternative ActivePieces piece exists and documenting the knowledge-base suggestions you've already checked.
+- Always remind users that they're building this in their ActivePieces instance
 
 Create a powerful, step-by-step guide that includes:
-1. **Flow Overview** - What this flow does and why
-2. **Prerequisites** - What the user needs before starting
-3. **Step-by-Step Instructions** - DETAILED steps with ALL required inputs
-4. **Trigger Configuration** - Exact settings, all input fields, authentication
-5. **Action Configuration** - For EACH action, list ALL inputs (required & optional)
-6. **Testing & Validation** - How to test the flow
-7. **Common Issues & Solutions** - Potential problems and fixes
-8. **Pro Tips** - Advanced configurations or optimizations
+
+**START YOUR GUIDE WITH:**
+A clear introduction stating: "This guide will help you build [flow description] in ActivePieces, a workflow automation platform."
+
+**THEN INCLUDE:**
+1. **Flow Overview** - What this ActivePieces flow does and why
+2. **Prerequisites** - What the user needs before starting (ActivePieces account, required integrations, etc.)
+3. **Step-by-Step Instructions** - DETAILED steps with ALL required inputs for building in ActivePieces
+4. **Trigger Configuration** - Exact settings in ActivePieces, all input fields, authentication
+5. **Action Configuration** - For EACH ActivePieces action, list ALL inputs (required & optional)
+6. **Testing & Validation** - How to test the flow in ActivePieces
+7. **Common Issues & Solutions** - Potential problems and fixes specific to ActivePieces
+8. **Pro Tips** - Advanced configurations or optimizations in ActivePieces
 
 CRITICAL REQUIREMENTS:
-- List ALL input properties for each trigger/action (don't say "configure" - tell them EXACTLY what to configure)
-- Include authentication requirements
+- Always mention that this is for ActivePieces platform
+- List ALL input properties for each trigger/action (don't say "configure" - tell them EXACTLY what to configure in ActivePieces)
+- Include authentication requirements specific to ActivePieces
 - Provide example values where helpful
-- Be specific about data mapping between steps
+- Be specific about data mapping between steps in ActivePieces
+- Reference the ActivePieces visual flow builder interface
 - If information is missing, search online or provide best practices
-- Make it so detailed that a beginner can follow it perfectly
+- Make it so detailed that a beginner can build this flow in ActivePieces perfectly
 
 Format your response in clear markdown with headers, bullet points, and code blocks where appropriate.
-Make this the MOST COMPREHENSIVE flow guide possible - the user should be able to build this flow by following your guide step-by-step.
+Make this the MOST COMPREHENSIVE ActivePieces flow guide possible - the user should be able to build this flow in their ActivePieces instance by following your guide step-by-step.
 """
 
         try:
@@ -1140,7 +1164,8 @@ Make this the MOST COMPREHENSIVE flow guide possible - the user should be able t
     
     def _create_basic_plan(self, user_request: str, analysis: Dict[str, Any], components: Dict[str, Any]) -> str:
         """Create a basic plan if comprehensive planning fails."""
-        plan = f"# Flow Building Guide: {analysis.get('flow_goal', user_request)}\n\n"
+        plan = f"# ActivePieces Flow Building Guide: {analysis.get('flow_goal', user_request)}\n\n"
+        plan += f"This guide will help you build this automation workflow in ActivePieces, a powerful workflow automation platform.\n\n"
         plan += f"## Overview\n{analysis.get('flow_goal', user_request)}\n\n"
         
         if components.get("trigger"):
@@ -1159,11 +1184,12 @@ Make this the MOST COMPREHENSIVE flow guide possible - the user should be able t
                     plan += f"{i}. **{piece.get('displayName')}**: {action_info.get('action_description')}\n"
         
         plan += "\n## Next Steps\n"
-        plan += "1. Log into your ActivePieces instance\n"
-        plan += "2. Create a new flow\n"
-        plan += "3. Add and configure the trigger\n"
-        plan += "4. Add and configure the actions\n"
-        plan += "5. Test your flow\n"
+        plan += "1. Log into your ActivePieces instance (ActivePieces platform)\n"
+        plan += "2. Create a new flow in the ActivePieces visual flow builder\n"
+        plan += "3. Add and configure the trigger in ActivePieces\n"
+        plan += "4. Add and configure the actions in ActivePieces\n"
+        plan += "5. Test your flow in ActivePieces\n"
+        plan += "\n**Note:** This flow is designed for the ActivePieces automation platform.\n"
         
         return plan
 
@@ -1189,26 +1215,30 @@ def build_flow(
     use_dual_models: bool = False
 ) -> Dict[str, Any]:
     """
-    Main function to build a comprehensive flow guide using the ActivePieces database.
+    Main function to build a comprehensive ActivePieces flow guide using the ActivePieces database.
+    
+    ActivePieces is a workflow automation platform where users build automated workflows by
+    connecting different services and applications. This function helps users create flows
+    for the ActivePieces platform.
     
     This function orchestrates a three-phase process:
-    1. Analyze: Parse user request and identify requirements
-    2. Search: Query database (450 pieces, 2,890 actions, 834 triggers) in parallel
-    3. Build: Generate detailed, step-by-step implementation guide
+    1. Analyze: Parse user request and identify ActivePieces requirements
+    2. Search: Query ActivePieces database (450 pieces, 2,890 actions, 834 triggers) in parallel
+    3. Build: Generate detailed, step-by-step ActivePieces implementation guide
     
     Args:
-        user_request: The user's flow building request
+        user_request: The user's ActivePieces flow building request
         user_answers: Optional answers to clarifying questions
         primary_model: Primary model to use (default: gpt-5-mini)
         secondary_model: Optional secondary model for dual-model mode
         use_dual_models: Whether to use dual models (one for analysis, one for building)
         
     Returns:
-        Dictionary with flow guide and metadata:
-        - guide: Comprehensive markdown guide
+        Dictionary with ActivePieces flow guide and metadata:
+        - guide: Comprehensive markdown guide for building in ActivePieces
         - analysis: Flow analysis with complexity/confidence
-        - components: Found pieces, actions, triggers
-        - clarifying_questions: Optional questions for user
+        - components: Found ActivePieces pieces, actions, triggers
+        - clarifying_questions: Optional questions for user (deprecated)
     """
     # Create builder with primary model
     builder = FlowBuilder(model=primary_model)
