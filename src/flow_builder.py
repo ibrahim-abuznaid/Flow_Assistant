@@ -468,7 +468,7 @@ class FlowBuilder:
             user_request: The user's flow building request
             
         Returns:
-            Dictionary with flow analysis and clarification questions
+            Dictionary with flow analysis including goal, trigger type, actions, complexity, and confidence
         """
         analysis_prompt = f"""You are an expert workflow automation analyst for ActivePieces, a powerful workflow automation platform.
 
@@ -483,8 +483,7 @@ You have access to a comprehensive ActivePieces database with:
 Analyze this ActivePieces flow building request and determine:
 1. What the user wants to accomplish (trigger → actions)
 2. What information is clear vs unclear
-3. What clarifying questions would help (max 3, keep them optional)
-4. The complexity level of the flow
+3. The complexity level of the flow
 
 User Request: "{user_request}"
 
@@ -495,13 +494,6 @@ Respond in this exact JSON format:
   "actions_needed": ["action 1", "action 2", ...],
   "is_clear": true/false,
   "missing_info": ["piece 1", "piece 2", ...],
-  "clarifying_questions": [
-    {{
-      "question": "specific question",
-      "purpose": "why this helps",
-      "optional": true
-    }}
-  ],
   "complexity": "simple|moderate|complex",
   "confidence": "high|medium|low"
 }}
@@ -515,18 +507,6 @@ Request: "I want to send an email when a new file is added to Google Drive"
   "actions_needed": ["Send Email"],
   "is_clear": true,
   "missing_info": [],
-  "clarifying_questions": [
-    {{
-      "question": "Do you want to filter for specific file types or folders?",
-      "purpose": "To set up trigger filters if needed",
-      "optional": true
-    }},
-    {{
-      "question": "Should the email include the file link or content?",
-      "purpose": "To configure email body properly",
-      "optional": true
-    }}
-  ],
   "complexity": "simple",
   "confidence": "high"
 }}
@@ -538,23 +518,6 @@ Request: "Automate my customer onboarding"
   "actions_needed": ["unclear - depends on onboarding steps"],
   "is_clear": false,
   "missing_info": ["trigger source", "onboarding steps", "tools used"],
-  "clarifying_questions": [
-    {{
-      "question": "How do new customers enter your system? (e.g., form submission, Stripe payment, CRM entry)",
-      "purpose": "To identify the right trigger",
-      "optional": false
-    }},
-    {{
-      "question": "What are the main steps in your onboarding? (e.g., send welcome email, create account, add to CRM)",
-      "purpose": "To identify required actions",
-      "optional": false
-    }},
-    {{
-      "question": "Which tools/platforms do you use? (e.g., Mailchimp, Slack, Google Sheets)",
-      "purpose": "To verify available integrations",
-      "optional": true
-    }}
-  ],
   "complexity": "complex",
   "confidence": "low"
 }}
@@ -600,7 +563,6 @@ Now analyze the user's request above."""
             return {
                 "flow_goal": user_request,
                 "is_clear": True,
-                "clarifying_questions": [],
                 "complexity": "moderate",
                 "confidence": "medium"
             }
@@ -811,7 +773,7 @@ Now analyze the user's request above."""
             user_request: Original user request
             analysis: Flow analysis
             components: Found components
-            user_answers: Optional answers to clarifying questions
+            user_answers: Optional additional user information (currently unused)
             
         Returns:
             Comprehensive flow building guide
@@ -1228,7 +1190,7 @@ def build_flow(
     
     Args:
         user_request: The user's ActivePieces flow building request
-        user_answers: Optional answers to clarifying questions
+        user_answers: Optional additional user information (currently unused)
         primary_model: Primary model to use (default: gpt-5-mini)
         secondary_model: Optional secondary model for dual-model mode
         use_dual_models: Whether to use dual models (one for analysis, one for building)
@@ -1238,7 +1200,7 @@ def build_flow(
         - guide: Comprehensive markdown guide for building in ActivePieces
         - analysis: Flow analysis with complexity/confidence
         - components: Found ActivePieces pieces, actions, triggers
-        - clarifying_questions: Optional questions for user (deprecated)
+        - models_used: Information about which models were used
     """
     # Create builder with primary model
     builder = FlowBuilder(model=primary_model)
@@ -1273,7 +1235,6 @@ def build_flow(
         "guide": comprehensive_guide,
         "analysis": analysis,
         "components": components,
-        "clarifying_questions": analysis.get("clarifying_questions", []),
         "models_used": {
             "primary": primary_model,
             "secondary": secondary_model if use_dual_models else None,
