@@ -212,6 +212,8 @@ function App() {
   const [primaryModel, setPrimaryModel] = useState('gpt-5-mini')
   const [secondaryModel, setSecondaryModel] = useState('gpt-5')
   const [useDualModels, setUseDualModels] = useState(false)
+  const [streamingContent, setStreamingContent] = useState('') // Content being streamed
+  const [isStreaming, setIsStreaming] = useState(false) // Whether we're currently streaming
   const messagesEndRef = useRef(null)
   const eventSourceRef = useRef(null)
   const abortControllerRef = useRef(null)
@@ -340,6 +342,8 @@ function App() {
     setActionLogs([]) // Clear current action logs for new request
     setShowActiveActionLogs(true) // Show action logs container
     setActiveLogsExpanded(false) // Start collapsed (closed)
+    setStreamingContent('') // Clear streaming content
+    setIsStreaming(false) // Reset streaming state
 
     // Create new AbortController for this request
     abortControllerRef.current = new AbortController()
@@ -397,6 +401,13 @@ function App() {
 
             if (data.type === 'status') {
               setCurrentStatus(data.message)
+            } else if (data.type === 'streaming_update') {
+              // Handle streaming content updates
+              setIsStreaming(true)
+              setStreamingContent(prev => prev + data.content)
+              // Update status with progress
+              const progress = `✨ Generating guide... ${data.total_chars.toLocaleString()} chars, ~${data.total_words.toLocaleString()} words (${data.elapsed_time.toFixed(1)}s)`
+              setCurrentStatus(progress)
             } else if (data.type === 'action_log') {
               // Add action log to the list
               setActionLogs(prev => [...prev, {
@@ -442,10 +453,12 @@ function App() {
               }
             } else if (data.type === 'done') {
               setCurrentStatus(null)
-              if (typeof data.reply === 'string' && data.reply.trim()) {
+              // Use streaming content if available, otherwise use reply
+              const finalText = isStreaming && streamingContent ? streamingContent : data.reply
+              if (typeof finalText === 'string' && finalText.trim()) {
                 setMessages(prev => [...prev, {
                   sender: 'assistant',
-                  text: data.reply
+                  text: finalText
                 }])
                 // Save the current action logs with the response
                 setCompletedActionLogs(prev => [...prev, {
@@ -456,6 +469,9 @@ function App() {
                 // Keep active logs visible but mark as no longer live
                 setShowActiveActionLogs(true)
               }
+              // Clear streaming state
+              setIsStreaming(false)
+              setStreamingContent('')
             } else if (data.type === 'error') {
               setCurrentStatus(null)
               setMessages(prev => [...prev, {
@@ -491,10 +507,12 @@ function App() {
 
             if (data.type === 'done') {
               setCurrentStatus(null)
-              if (typeof data.reply === 'string' && data.reply.trim()) {
+              // Use streaming content if available, otherwise use reply
+              const finalText = isStreaming && streamingContent ? streamingContent : data.reply
+              if (typeof finalText === 'string' && finalText.trim()) {
                 setMessages(prev => [...prev, {
                   sender: 'assistant',
-                  text: data.reply
+                  text: finalText
                 }])
                 // Save the current action logs with the response
                 setCompletedActionLogs(prev => [...prev, {
@@ -503,6 +521,15 @@ function App() {
                   timestamp: Date.now()
                 }])
               }
+              // Clear streaming state
+              setIsStreaming(false)
+              setStreamingContent('')
+            } else if (data.type === 'streaming_update') {
+              // Handle streaming content updates (in buffer processing)
+              setIsStreaming(true)
+              setStreamingContent(prev => prev + data.content)
+              const progress = `✨ Generating guide... ${data.total_chars.toLocaleString()} chars, ~${data.total_words.toLocaleString()} words (${data.elapsed_time.toFixed(1)}s)`
+              setCurrentStatus(progress)
             } else if (data.type === 'action_log') {
               // Add action log to the list
               setActionLogs(prev => [...prev, {
@@ -775,16 +802,54 @@ function App() {
                   </button>
                 </div>
               )}
-              <div className="message assistant">
-                <div className="message-avatar">🤖</div>
-                <div className="message-content">
-                  <div className="typing-indicator">
-                    <span></span>
-                    <span></span>
-                    <span></span>
+              {/* Show streaming content if available */}
+              {isStreaming && streamingContent && (
+                <div className="message assistant streaming">
+                  <div className="message-avatar">{buildFlowMode ? '🔧' : '🤖'}</div>
+                  <div className="message-content">
+                    {buildFlowMode && (
+                      <div className="flow-guide-badge">
+                        📋 Build Flow Guide (Streaming...)
+                      </div>
+                    )}
+                    <div className="message-text streaming-text">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          code({ node, inline, className, children, ...props }) {
+                            const match = /language-(\w+)/.exec(className || '')
+                            return !inline && match ? (
+                              <CodeBlock language={match[1]}>
+                                {children}
+                              </CodeBlock>
+                            ) : (
+                              <code className={className} {...props}>
+                                {children}
+                              </code>
+                            )
+                          }
+                        }}
+                      >
+                        {streamingContent}
+                      </ReactMarkdown>
+                      <span className="streaming-cursor">▊</span>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
+              {/* Show typing indicator only when not streaming */}
+              {!isStreaming && (
+                <div className="message assistant">
+                  <div className="message-avatar">{buildFlowMode ? '🔧' : '🤖'}</div>
+                  <div className="message-content">
+                    <div className="typing-indicator">
+                      <span></span>
+                      <span></span>
+                      <span></span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </>
           )}
 

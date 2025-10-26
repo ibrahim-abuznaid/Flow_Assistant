@@ -328,6 +328,42 @@ class FlowBuilder:
         return None
 
     @staticmethod
+    def _extract_output_text(final_response: Any) -> str:
+        """Best-effort extraction of text content from an OpenAI Responses API response."""
+        if not final_response:
+            return ""
+
+        # Try direct output_text attribute first (string or list of strings)
+        try:
+            output_text = getattr(final_response, "output_text", None)
+            if isinstance(output_text, str):
+                return output_text
+            if isinstance(output_text, list):
+                return "".join([text for text in output_text if isinstance(text, str)])
+        except Exception:
+            pass
+
+        # Fall back to iterating over structured output content
+        try:
+            output = getattr(final_response, "output", None) or getattr(final_response, "outputs", None)
+            if output:
+                collected: List[str] = []
+                for item in output:
+                    content_list = getattr(item, "content", None) or []
+                    for content in content_list:
+                        text_value = getattr(content, "text", None)
+                        if isinstance(text_value, str):
+                            collected.append(text_value)
+                        elif isinstance(text_value, list):
+                            collected.extend([text for text in text_value if isinstance(text, str)])
+                if collected:
+                    return "".join(collected)
+        except Exception:
+            pass
+
+        return ""
+
+    @staticmethod
     @lru_cache(maxsize=128)
     def _rag_piece_suggestions(query: str) -> List[str]:
         if not query:
@@ -499,7 +535,7 @@ class FlowBuilder:
             Dictionary with flow analysis including goal, trigger type, actions, complexity, and confidence
         """
         start_time = time.time()
-        self._emit_action_log("🧠", "Analyzing flow request", user_request[:80] + "..." if len(user_request) > 80 else user_request, "analyzing")
+        self._emit_action_log("🧠", "Analyzing flow request with AI", f"Understanding: {user_request[:60]}..." if len(user_request) > 60 else f"Understanding: {user_request}", "started")
         
         analysis_prompt = f"""You are an expert workflow automation analyst for ActivePieces, a powerful workflow automation platform.
 
@@ -588,7 +624,10 @@ Now analyze the user's request above."""
             print(f"{'='*60}\n")
             
             duration = time.time() - start_time
-            self._emit_action_log("✅", "Analysis complete", f"Goal: {analysis.get('flow_goal', '')[:60]}...", "completed", duration)
+            complexity = analysis.get('complexity', 'Unknown').upper()
+            confidence = analysis.get('confidence', 'Unknown').upper()
+            actions_count = len(analysis.get('actions_needed', []))
+            self._emit_action_log("✅", "Flow analysis completed", f"Identified {actions_count} actions needed • Complexity: {complexity} • Confidence: {confidence}", "completed", duration)
             
             return analysis
             
@@ -605,7 +644,9 @@ Now analyze the user's request above."""
         """Search for the pieces, triggers, and actions needed for the flow."""
         
         start_time = time.time()
-        self._emit_action_log("🔎", "Searching ActivePieces database", "Finding triggers, actions, and pieces", "searching")
+        trigger_type = analysis.get('trigger_type', 'Unknown')
+        actions_count = len(analysis.get('actions_needed', []))
+        self._emit_action_log("🔎", "Searching ActivePieces database", f"Looking for trigger '{trigger_type}' and {actions_count} actions across 450 pieces", "started")
 
         components: Dict[str, Any] = {
             "trigger": None,
@@ -796,7 +837,16 @@ Now analyze the user's request above."""
         components["knowledge_context"] = resolved.get(("knowledge_context", 0)) or []
         
         duration = time.time() - start_time
-        self._emit_action_log("✅", "Database search complete", f"Found {len(components.get('actions', []))} actions, {len(components.get('trigger_matches', []))} triggers", "completed", duration)
+        actions_found = len(components.get('actions', []))
+        triggers_found = len(components.get('trigger_matches', []))
+        pieces_found = len(components.get('pieces', []))
+        missing_count = len(components.get('missing', []))
+        
+        details = f"Found {pieces_found} pieces, {actions_found} actions, {triggers_found} trigger options"
+        if missing_count > 0:
+            details += f" • {missing_count} components need alternatives"
+        
+        self._emit_action_log("✅", "Database search completed", details, "completed", duration)
         
         return components
     
@@ -820,7 +870,11 @@ Now analyze the user's request above."""
             Comprehensive flow building guide
         """
         start_time = time.time()
-        self._emit_action_log("🏗️", "Building comprehensive flow guide", "Generating step-by-step instructions with AI", "building")
+        self._emit_action_log("🏗️", "Building comprehensive flow guide", "Starting multi-step guide generation process", "started")
+        
+        # Sub-step 1: Prepare context
+        prep_start = time.time()
+        self._emit_action_log("📝", "Step 1: Preparing context", "Gathering flow foundations (triggers, actions, routers, loops, data mapping rules)", "started")
         
         # Prepare context for the guide generator
         context_parts: List[str] = [
@@ -847,7 +901,13 @@ FOUND COMPONENTS:
             "  - Map outputs from previous steps—including trigger data and earlier actions—into later actions; for example, reuse Gmail trigger fields like email text or attachments anywhere downstream.\n"
             "  - Test each action (and the trigger) as you build to confirm authentication, inputs, and data mappings before adding the next step.\n"
         )
+        
+        prep_duration = time.time() - prep_start
+        self._emit_action_log("✅", "Context prepared", "Added ActivePieces workflow foundations and user requirements", "completed", prep_duration)
 
+        # Sub-step 2: Process trigger information
+        trigger_start = time.time()
+        self._emit_action_log("🎯", "Step 2: Processing trigger", "Loading trigger piece details, available triggers, and configuration options", "started")
         trigger_info = components.get("trigger")
         trigger_matches = components.get("trigger_matches", [])
         if trigger_info and trigger_info.get("piece"):
@@ -875,7 +935,15 @@ FOUND COMPONENTS:
                 context_parts.append(
                     f"    - {match.get('piece', 'Unknown piece')} → {match.get('trigger', 'Unknown trigger')}"
                 )
+        
+        trigger_duration = time.time() - trigger_start
+        trigger_piece_name = "None" if not trigger_info or not trigger_info.get("piece") else trigger_info["piece"].get('displayName', 'Unknown')
+        self._emit_action_log("✅", "Trigger processed", f"Loaded '{trigger_piece_name}' with {len(trigger_matches)} alternative trigger options", "completed", trigger_duration)
 
+        # Sub-step 3: Load piece capability summaries
+        pieces_start = time.time()
+        piece_count = len(components.get("pieces", []))
+        self._emit_action_log("📦", "Step 3: Loading piece capabilities", f"Fetching complete action/trigger lists from database for {piece_count} pieces", "started")
         piece_overviews: List[str] = []
         seen_piece_names = set()
         for piece in components.get("pieces", []):
@@ -892,7 +960,16 @@ FOUND COMPONENTS:
         if piece_overviews:
             context_parts.append("\n✓ PIECE CAPABILITY SUMMARIES:")
             context_parts.extend(piece_overviews)
+        
+        pieces_duration = time.time() - pieces_start
+        piece_names = ", ".join([p.get('displayName', 'Unknown') for p in components.get("pieces", [])[:3]])
+        if len(components.get("pieces", [])) > 3:
+            piece_names += f", +{len(components.get('pieces', [])) - 3} more"
+        self._emit_action_log("✅", "Capabilities loaded", f"Loaded actions/triggers for: {piece_names}", "completed", pieces_duration)
 
+        # Sub-step 4: Identify AI utilities
+        ai_start = time.time()
+        self._emit_action_log("🤖", "Step 4: Identifying AI utilities", "Checking if flow needs Text AI, Utility AI, Image AI, or Video AI pieces", "started")
         ai_highlights: List[str] = []
         for action_info in components.get("actions", []):
             preferred_key = action_info.get("preferred_piece_key")
@@ -913,7 +990,18 @@ FOUND COMPONENTS:
         if ai_highlights:
             context_parts.append("\n✓ ACTIVEPIECES AI UTILITIES SELECTED:")
             context_parts.extend(ai_highlights)
+        
+        ai_duration = time.time() - ai_start
+        if len(ai_highlights) > 0:
+            ai_names = ", ".join([h.split("→")[0].strip().replace("- ", "") for h in ai_highlights])
+            self._emit_action_log("✅", "AI utilities identified", f"Selected {len(ai_highlights)} AI pieces: {ai_names}", "completed", ai_duration)
+        else:
+            self._emit_action_log("✅", "AI utilities checked", "No AI utilities needed for this flow", "completed", ai_duration)
 
+        # Sub-step 5: Determine action strategies
+        strategies_start = time.time()
+        action_count = len(components.get("actions", []))
+        self._emit_action_log("⚙️", "Step 5: Determining action strategies", f"Analyzing {action_count} actions to find best implementation approach (native pieces, alternatives, or custom code)", "started")
         action_strategies: List[Dict[str, Any]] = []
         needs_http_fallback = False
         needs_code_fallback = False
@@ -965,7 +1053,28 @@ FOUND COMPONENTS:
         if action_strategies:
             context_parts.append("\n✓ ACTION STRATEGIES:")
             context_parts.extend(action_strategies)
+        
+        strategies_duration = time.time() - strategies_start
+        native_count = sum(1 for s in action_strategies if "native" in str(s))
+        alternative_count = sum(1 for s in action_strategies if "alternative" in str(s))
+        custom_count = len(action_strategies) - native_count - alternative_count
+        strategy_summary = f"{native_count} native pieces"
+        if alternative_count > 0:
+            strategy_summary += f", {alternative_count} alternatives"
+        if custom_count > 0:
+            strategy_summary += f", {custom_count} custom solutions"
+        self._emit_action_log("✅", "Strategies determined", f"Planned {len(action_strategies)} actions: {strategy_summary}", "completed", strategies_duration)
 
+        # Sub-step 6: Load fallback documentation (HTTP/Code)
+        if needs_http_fallback or needs_code_fallback:
+            fallback_start = time.time()
+            fallback_types = []
+            if needs_http_fallback:
+                fallback_types.append("HTTP Request")
+            if needs_code_fallback:
+                fallback_types.append("Custom Code")
+            self._emit_action_log("📖", "Step 6: Loading fallback docs", f"Fetching documentation for {', '.join(fallback_types)} pieces (for actions without native pieces)", "started")
+        
         http_reference = None
         http_docs_update = None
         if needs_http_fallback:
@@ -1005,8 +1114,22 @@ FOUND COMPONENTS:
             context_parts.append(
                 f"\n✓ CUSTOM CODE GUIDANCE (excerpt):\n{code_guidelines_reference}"
             )
+        
+        if needs_http_fallback or needs_code_fallback:
+            fallback_duration = time.time() - fallback_start
+            loaded_docs = []
+            if http_reference and not http_reference.startswith("⚠️"):
+                loaded_docs.append("HTTP Request inputs")
+            if code_guidelines_reference and not code_guidelines_reference.startswith("⚠️"):
+                loaded_docs.append("Code guidelines")
+            docs_text = " & ".join(loaded_docs) if loaded_docs else "documentation"
+            self._emit_action_log("✅", "Fallback docs loaded", f"Loaded {docs_text} for custom implementation options", "completed", fallback_duration)
 
+        # Sub-step 7: Add knowledge base context
+        kb_start = time.time()
         knowledge_context = components.get("knowledge_context") or []
+        if knowledge_context:
+            self._emit_action_log("📚", "Step 7: Adding knowledge base context", f"Retrieving {len(knowledge_context)} relevant documentation snippets from vector store (RAG)", "started")
         if knowledge_context:
             context_parts.append("\n✓ ADDITIONAL CONTEXT FROM KNOWLEDGE BASE:")
             for kb_item in knowledge_context[:2]:
@@ -1014,6 +1137,8 @@ FOUND COMPONENTS:
                 if len(snippet) > 220:
                     snippet = snippet[:220] + "..."
                 context_parts.append(f"  - {snippet}")
+            kb_duration = time.time() - kb_start
+            self._emit_action_log("✅", "Knowledge base context added", f"Added {len(knowledge_context)} relevant documentation snippets to context", "completed", kb_duration)
 
         if user_answers:
             context_parts.append(f"\n✓ USER PROVIDED ADDITIONAL INFO:\n{user_answers}")
@@ -1085,10 +1210,15 @@ Make this the MOST COMPREHENSIVE ActivePieces flow guide possible - the user sho
 """
 
         try:
-            # Use web search if enabled and we have missing components or need more details
+            # Sub-step 8: Web search for missing info (if enabled and needed)
             if self.enable_web_search and (components.get("missing") or analysis.get("confidence") == "low"):
+                web_search_start = time.time()
+                missing_count = len(components.get("missing", []))
+                self._emit_action_log("🌐", "Step 8: Searching web for info", f"Using web search to find information about {missing_count} missing/unclear components", "started")
                 search_results = self._search_for_missing_info(analysis, components)
                 planning_prompt += f"\n\nADDITIONAL RESEARCH FROM WEB:\n{search_results}\n"
+                web_search_duration = time.time() - web_search_start
+                self._emit_action_log("✅", "Web search completed", f"Found additional information for {missing_count} components via web search", "completed", web_search_duration)
             
             complexity_level = (analysis.get("complexity") or "moderate").lower()
             confidence_level = (analysis.get("confidence") or "").lower()
@@ -1116,15 +1246,110 @@ Make this the MOST COMPREHENSIVE ActivePieces flow guide possible - the user sho
                 reasoning_effort = "high"
                 verbosity_level = "high"
 
-            # Generate comprehensive plan
-            response = self.client.responses.create(
-                model=model_choice,
-                input=planning_prompt,
-                reasoning={"effort": reasoning_effort},
-                text={"verbosity": verbosity_level}
-            )
+            # Sub-step 9: Generate comprehensive guide with AI
+            generation_start = time.time()
+            self._emit_action_log("✨", "Step 9: Generating guide with AI", f"Using OpenAI {model_choice} with {reasoning_effort} reasoning effort to create comprehensive, step-by-step flow guide", "started")
             
-            comprehensive_guide = response.output_text.strip()
+            # Generate comprehensive plan with streaming
+            comprehensive_guide = ""
+            chunk_count = 0
+            last_update_time = time.time()
+            update_interval = 0.5  # Update UI every 0.5 seconds
+            
+            try:
+                last_streamed_chars = 0
+
+                def emit_streaming_update(force: bool = False):
+                    nonlocal last_update_time, last_streamed_chars
+                    current_time = time.time()
+                    if not force and current_time - last_update_time < update_interval:
+                        return
+
+                    new_text = comprehensive_guide[last_streamed_chars:]
+                    if not new_text:
+                        return
+
+                    elapsed = current_time - generation_start
+                    chars_so_far = len(comprehensive_guide)
+                    words_so_far = len(comprehensive_guide.split())
+
+                    if self.status_callback:
+                        self.status_callback({
+                            "type": "streaming_update",
+                            "step": self.action_counter,
+                            "content": new_text,
+                            "total_chars": chars_so_far,
+                            "total_words": words_so_far,
+                            "elapsed_time": elapsed,
+                            "status": "streaming"
+                        })
+
+                    last_streamed_chars = chars_so_far
+                    last_update_time = current_time
+
+                with self.client.responses.stream(
+                    model=model_choice,
+                    input=planning_prompt,
+                    reasoning={"effort": reasoning_effort},
+                    text={"verbosity": verbosity_level},
+                ) as stream:
+                    final_response = None
+
+                    for event in stream:
+                        event_type = getattr(event, "type", None)
+
+                        if event_type == "response.output_text.delta":
+                            chunk_text = getattr(event, "delta", "") or ""
+                            if not chunk_text:
+                                continue
+
+                            comprehensive_guide += chunk_text
+                            chunk_count += 1
+
+                            # Emit streaming update every 0.5 seconds to avoid overwhelming the UI
+                            emit_streaming_update(force=False)
+
+                        elif event_type == "response.output_text.done":
+                            # Nothing to do, wait for completed event
+                            continue
+
+                        elif event_type == "response.completed":
+                            final_response = stream.get_final_response()
+
+                        elif event_type == "response.error":
+                            error_detail = getattr(event, "error", None)
+                            raise RuntimeError(f"Streaming error: {error_detail}")
+
+                    # Flush any remaining streamed content that hasn't been emitted yet
+                    emit_streaming_update(force=True)
+
+                    # Ensure we capture any remaining text from the final response
+                    if final_response and not comprehensive_guide:
+                        comprehensive_guide = (self._extract_output_text(final_response) or "").strip()
+                    elif final_response:
+                        # Some models may include extra trailing text in the final response object
+                        final_text = self._extract_output_text(final_response)
+                        if final_text:
+                            # Avoid double-appending; only add difference
+                            if len(final_text) > len(comprehensive_guide):
+                                comprehensive_guide = final_text
+
+                comprehensive_guide = comprehensive_guide.strip()
+                
+            except Exception as stream_error:
+                print(f"⚠️  Streaming failed, falling back to non-streaming: {stream_error}")
+                # Fallback to non-streaming mode
+                response = self.client.responses.create(
+                    model=model_choice,
+                    input=planning_prompt,
+                    reasoning={"effort": reasoning_effort},
+                    text={"verbosity": verbosity_level}
+                )
+                comprehensive_guide = response.output_text.strip()
+            
+            generation_duration = time.time() - generation_start
+            guide_words = len(comprehensive_guide.split())
+            self._emit_action_log("✅", "AI generation completed", f"Generated comprehensive guide: {len(comprehensive_guide):,} characters, ~{guide_words:,} words • Streamed {chunk_count} chunks", "completed", generation_duration)
             
             print(f"\n{'='*60}")
             print("📋 COMPREHENSIVE FLOW GUIDE GENERATED")
@@ -1132,7 +1357,7 @@ Make this the MOST COMPREHENSIVE ActivePieces flow guide possible - the user sho
             print(f"{'='*60}\n")
             
             duration = time.time() - start_time
-            self._emit_action_log("✨", "Flow guide completed", f"Generated {len(comprehensive_guide)} character guide", "completed", duration)
+            self._emit_action_log("🎉", "Flow guide complete!", f"Successfully completed all {self.action_counter} steps • Total time: {duration:.1f}s • Ready to build in ActivePieces", "completed", duration)
             
             return comprehensive_guide
             
