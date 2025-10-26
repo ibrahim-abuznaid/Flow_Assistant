@@ -23,8 +23,9 @@ Your role is to help users understand and work with ActivePieces by:
 You have access to these tools:
 - **check_activepieces**: Use this to verify if a specific piece, action, or trigger exists in ActivePieces
 - **search_activepieces_docs**: Use this to find detailed information including INPUT PROPERTIES, types, requirements, and options
-- **web_search**: Use this for general questions or information not in the ActivePieces knowledge base
 - **get_code_generation_guidelines**: Use this BEFORE generating any TypeScript code for flow steps - it provides critical guidelines and best practices
+
+Note: Web search may or may not be available depending on user preferences.
 
 EFFICIENCY GUIDELINES:
 - Be concise and direct in your responses
@@ -96,19 +97,20 @@ def _make_cache_key(session_id: Optional[str]) -> str:
     return session_id or _DEFAULT_SESSION_KEY
 
 
-def create_direct_agent(session_id: Optional[str] = None) -> AgentExecutor:
+def create_direct_agent(session_id: Optional[str] = None, enable_web_search: bool = False) -> AgentExecutor:
     """
     Create a DIRECT agent instance optimized for speed.
 
     Args:
         session_id: Optional session ID to load conversation history
+        enable_web_search: Whether to include web search tool
 
     Returns:
         AgentExecutor configured for fast execution
     """
     llm = get_llm()
     memory = create_memory(session_id=session_id)
-    tools = get_all_tools()
+    tools = get_all_tools(enable_web_search=enable_web_search)
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", DIRECT_SYSTEM_PROMPT),
@@ -137,14 +139,15 @@ def create_direct_agent(session_id: Optional[str] = None) -> AgentExecutor:
     return agent_executor
 
 
-def get_agent(session_id: Optional[str] = None) -> AgentExecutor:
+def get_agent(session_id: Optional[str] = None, enable_web_search: bool = False) -> AgentExecutor:
     """Get or create an agent executor with session-scoped memory."""
-    cache_key = _make_cache_key(session_id)
+    # Include web search state in cache key to avoid tool mismatches
+    cache_key = f"{_make_cache_key(session_id)}_ws_{enable_web_search}"
 
     with _AGENT_CACHE_LOCK:
         agent_executor = _AGENT_CACHE.get(cache_key)
         if agent_executor is None:
-            agent_executor = create_direct_agent(session_id=session_id)
+            agent_executor = create_direct_agent(session_id=session_id, enable_web_search=enable_web_search)
             _AGENT_CACHE[cache_key] = agent_executor
 
     return agent_executor

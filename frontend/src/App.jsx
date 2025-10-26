@@ -40,8 +40,67 @@ const CodeBlock = ({ language, children }) => {
   )
 }
 
+// Collapsible Action Logs Component - Shows above response in message
+const CollapsibleActionLogs = ({ logs, isLatest, activeExpanded, onToggle }) => {
+  const [isExpanded, setIsExpanded] = useState(false)
+
+  if (!logs || logs.length === 0) return null
+
+  // If this is the latest message and we have active state, use that
+  const expanded = isLatest && activeExpanded !== undefined ? activeExpanded : isExpanded
+  const handleToggle = () => {
+    if (isLatest && onToggle) {
+      onToggle()
+    } else {
+      setIsExpanded(!isExpanded)
+    }
+  }
+  
+  // Format duration in a human-readable way
+  const formatDuration = (duration) => {
+    if (!duration) return null
+    if (duration < 1) return `${Math.round(duration * 1000)}ms`
+    return `${duration.toFixed(2)}s`
+  }
+
+  return (
+    <div className="completed-action-logs">
+      <button 
+        className="action-logs-toggle"
+        onClick={handleToggle}
+        title={expanded ? 'Hide agent actions' : 'Show agent actions'}
+      >
+        <span className="toggle-icon">{expanded ? '▼' : '▶'}</span>
+        <span className="toggle-text">
+          🔍 Agent Actions ({logs.length} {logs.length === 1 ? 'step' : 'steps'})
+        </span>
+      </button>
+      {expanded && (
+        <div className="action-logs-list completed">
+          {logs.map((log, idx) => (
+            <div key={idx} className={`action-log-item ${log.status}`}>
+              <span className="action-log-icon">{log.icon}</span>
+              <div className="action-log-content">
+                <div className="action-log-action">
+                  {log.action}
+                  {log.duration && (
+                    <span className="action-log-duration">{formatDuration(log.duration)}</span>
+                  )}
+                </div>
+                {log.detail && (
+                  <div className="action-log-detail">{log.detail}</div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // Message component with collapsible long content
-const Message = ({ msg, idx, buildFlowMode }) => {
+const Message = ({ msg, idx, buildFlowMode, actionLogs, isLatestAssistant, activeLogsExpanded, onActiveLogsToggle }) => {
   // Start expanded by default, especially for Build Flow Mode
   const [isExpanded, setIsExpanded] = useState(true)
   const [needsExpand, setNeedsExpand] = useState(false)
@@ -81,6 +140,15 @@ const Message = ({ msg, idx, buildFlowMode }) => {
           <div className="flow-guide-badge">
             📋 Build Flow Guide
           </div>
+        )}
+        {/* Show action logs for assistant messages - ABOVE the response text */}
+        {msg.sender === 'assistant' && actionLogs && (
+          <CollapsibleActionLogs 
+            logs={actionLogs} 
+            isLatest={isLatestAssistant}
+            activeExpanded={activeLogsExpanded}
+            onToggle={onActiveLogsToggle}
+          />
         )}
         <div className="message-text">
           <ReactMarkdown
@@ -131,11 +199,16 @@ function App() {
   const [isLoading, setIsLoading] = useState(false)
   const [stats, setStats] = useState(null)
   const [currentStatus, setCurrentStatus] = useState(null)
+  const [actionLogs, setActionLogs] = useState([]) // Current action logs for active request
+  const [showActiveActionLogs, setShowActiveActionLogs] = useState(true) // Whether to show active action logs
+  const [activeLogsExpanded, setActiveLogsExpanded] = useState(false) // Whether active logs are expanded (default: closed)
+  const [completedActionLogs, setCompletedActionLogs] = useState([]) // Completed action logs with responses
   const [sessionId, setSessionId] = useState(() => generateSessionId())
   const [showSessions, setShowSessions] = useState(false)
   const [previousSessions, setPreviousSessions] = useState([])
   const [selectedSession, setSelectedSession] = useState(null)
   const [buildFlowMode, setBuildFlowMode] = useState(false)
+  const [enableWebSearch, setEnableWebSearch] = useState(false)
   const [primaryModel, setPrimaryModel] = useState('gpt-5-mini')
   const [secondaryModel, setSecondaryModel] = useState('gpt-5')
   const [useDualModels, setUseDualModels] = useState(false)
@@ -209,6 +282,9 @@ function App() {
 
     setSessionId(sessionData.session_id)
     setMessages(restoredMessages)
+    setCompletedActionLogs([]) // Clear action logs when continuing a session
+    setActionLogs([])
+    setShowActiveActionLogs(false) // Hide active logs
     setShowSessions(false)
     setSelectedSession(null)
     setBuildFlowMode(false)
@@ -261,6 +337,9 @@ function App() {
     setCurrentInput('')
     setIsLoading(true)
     setCurrentStatus('🚀 Starting...')
+    setActionLogs([]) // Clear current action logs for new request
+    setShowActiveActionLogs(true) // Show action logs container
+    setActiveLogsExpanded(false) // Start collapsed (closed)
 
     // Create new AbortController for this request
     abortControllerRef.current = new AbortController()
@@ -280,6 +359,7 @@ function App() {
           message: userMessage,
           session_id: sessionId,
           build_flow_mode: buildFlowMode,
+          enable_web_search: enableWebSearch,
           primary_model: primaryModel,
           secondary_model: useDualModels ? secondaryModel : null,
           use_dual_models: useDualModels
@@ -317,6 +397,25 @@ function App() {
 
             if (data.type === 'status') {
               setCurrentStatus(data.message)
+            } else if (data.type === 'action_log') {
+              // Add action log to the list
+              setActionLogs(prev => [...prev, {
+                step: data.step,
+                icon: data.icon,
+                action: data.action,
+                detail: data.detail,
+                status: data.status,
+                timestamp: Date.now(),
+                duration: data.duration,
+                start_time: data.start_time
+              }])
+            } else if (data.type === 'action_log_update') {
+              // Update existing log with duration
+              setActionLogs(prev => prev.map(log => 
+                log.step === data.step 
+                  ? { ...log, duration: data.duration, status: data.status }
+                  : log
+              ))
             } else if (data.type === 'chunk_start') {
               isChunking = true
               chunkedResponse = ''
@@ -333,6 +432,14 @@ function App() {
                 text: finalText
               }])
               chunkedResponse = ''
+              // Save action logs with chunked response
+              if (actionLogs.length > 0) {
+                setCompletedActionLogs(prev => [...prev, {
+                  id: Date.now(),
+                  logs: [...actionLogs],
+                  timestamp: Date.now()
+                }])
+              }
             } else if (data.type === 'done') {
               setCurrentStatus(null)
               if (typeof data.reply === 'string' && data.reply.trim()) {
@@ -340,6 +447,14 @@ function App() {
                   sender: 'assistant',
                   text: data.reply
                 }])
+                // Save the current action logs with the response
+                setCompletedActionLogs(prev => [...prev, {
+                  id: Date.now(),
+                  logs: [...actionLogs],
+                  timestamp: Date.now()
+                }])
+                // Keep active logs visible but mark as no longer live
+                setShowActiveActionLogs(true)
               }
             } else if (data.type === 'error') {
               setCurrentStatus(null)
@@ -347,6 +462,15 @@ function App() {
                 sender: 'assistant',
                 text: `Error: ${data.message}`
               }])
+              // Save logs even on error
+              if (actionLogs.length > 0) {
+                setCompletedActionLogs(prev => [...prev, {
+                  id: Date.now(),
+                  logs: [...actionLogs],
+                  timestamp: Date.now()
+                }])
+                setShowActiveActionLogs(true)
+              }
             }
           } catch (e) {
             console.error('Error parsing SSE data:', e)
@@ -372,7 +496,32 @@ function App() {
                   sender: 'assistant',
                   text: data.reply
                 }])
+                // Save the current action logs with the response
+                setCompletedActionLogs(prev => [...prev, {
+                  id: Date.now(),
+                  logs: [...actionLogs],
+                  timestamp: Date.now()
+                }])
               }
+            } else if (data.type === 'action_log') {
+              // Add action log to the list
+              setActionLogs(prev => [...prev, {
+                step: data.step,
+                icon: data.icon,
+                action: data.action,
+                detail: data.detail,
+                status: data.status,
+                timestamp: Date.now(),
+                duration: data.duration,
+                start_time: data.start_time
+              }])
+            } else if (data.type === 'action_log_update') {
+              // Update existing log with duration
+              setActionLogs(prev => prev.map(log => 
+                log.step === data.step 
+                  ? { ...log, duration: data.duration, status: data.status }
+                  : log
+              ))
             } else if (data.type === 'chunk_start') {
               isChunking = true
               chunkedResponse = ''
@@ -389,6 +538,15 @@ function App() {
                 text: finalText
               }])
               chunkedResponse = ''
+              // Save action logs with chunked response
+              if (actionLogs.length > 0) {
+                setCompletedActionLogs(prev => [...prev, {
+                  id: Date.now(),
+                  logs: [...actionLogs],
+                  timestamp: Date.now()
+                }])
+                setShowActiveActionLogs(true)
+              }
             }
           } catch (e) {
             console.error('Error parsing remaining SSE buffer:', e)
@@ -427,6 +585,15 @@ function App() {
           sender: 'assistant', 
           text: finalText + '\n\n*[Response may be incomplete]*'
         }])
+        // Save logs for incomplete response
+        if (actionLogs.length > 0) {
+          setCompletedActionLogs(prev => [...prev, {
+            id: Date.now(),
+            logs: [...actionLogs],
+            timestamp: Date.now()
+          }])
+          setShowActiveActionLogs(true)
+        }
       }
       
       setIsLoading(false)
@@ -450,6 +617,9 @@ function App() {
     // Generate new session ID and clear messages
     setSessionId(generateSessionId())
     setMessages([])
+    setCompletedActionLogs([]) // Clear completed action logs
+    setActionLogs([]) // Clear current action logs
+    setShowActiveActionLogs(false) // Hide active logs
     
     // Refresh sessions list to include the old session
     fetchSessions()
@@ -503,9 +673,89 @@ function App() {
             </div>
           )}
 
-          {messages.map((msg, idx) => (
-            <Message key={idx} msg={msg} idx={idx} buildFlowMode={buildFlowMode} />
-          ))}
+          {messages.map((msg, idx) => {
+            // Find action logs for this assistant message
+            let msgActionLogs = null
+            let isLatestAssistant = false
+            
+            if (msg.sender === 'assistant') {
+              // Count how many assistant messages we've seen so far
+              const assistantMsgIndex = messages.slice(0, idx + 1).filter(m => m.sender === 'assistant').length - 1
+              
+              // Check if this is the latest assistant message
+              const totalAssistantMessages = messages.filter(m => m.sender === 'assistant').length
+              isLatestAssistant = assistantMsgIndex === totalAssistantMessages - 1
+              
+              // For the latest assistant message, show current action logs if available
+              if (isLatestAssistant && actionLogs.length > 0) {
+                msgActionLogs = actionLogs
+              } else if (completedActionLogs[assistantMsgIndex]) {
+                msgActionLogs = completedActionLogs[assistantMsgIndex].logs
+              }
+            }
+            
+            return (
+              <Message 
+                key={idx} 
+                msg={msg} 
+                idx={idx} 
+                buildFlowMode={buildFlowMode}
+                actionLogs={msgActionLogs}
+                isLatestAssistant={isLatestAssistant}
+                activeLogsExpanded={activeLogsExpanded}
+                onActiveLogsToggle={() => setActiveLogsExpanded(!activeLogsExpanded)}
+              />
+            )
+          })}
+
+          {isLoading && (
+            <>
+              {/* Active Action Logs - Show during loading, will move into message after */}
+              {actionLogs.length > 0 && (
+                <div className="active-action-logs-container">
+                  <button 
+                    className="action-logs-toggle active"
+                    onClick={() => setActiveLogsExpanded(!activeLogsExpanded)}
+                    title={activeLogsExpanded ? 'Hide agent actions' : 'Show agent actions'}
+                  >
+                    <span className="toggle-icon">{activeLogsExpanded ? '▼' : '▶'}</span>
+                    <span className="toggle-text">
+                      🔍 Agent Actions ({actionLogs.length} {actionLogs.length === 1 ? 'step' : 'steps'})
+                      <span className="live-indicator"> • Live</span>
+                    </span>
+                  </button>
+              {activeLogsExpanded && (
+                <div className="action-logs-list active">
+                  {actionLogs.map((log, idx) => {
+                    const formatDuration = (duration) => {
+                      if (!duration) return null
+                      if (duration < 1) return `${Math.round(duration * 1000)}ms`
+                      return `${duration.toFixed(2)}s`
+                    }
+                    
+                    return (
+                      <div key={idx} className={`action-log-item ${log.status}`}>
+                        <span className="action-log-icon">{log.icon}</span>
+                        <div className="action-log-content">
+                          <div className="action-log-action">
+                            {log.action}
+                            {log.duration && (
+                              <span className="action-log-duration">{formatDuration(log.duration)}</span>
+                            )}
+                          </div>
+                          {log.detail && (
+                            <div className="action-log-detail">{log.detail}</div>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+                </div>
+              )}
+            </>
+          )}
 
           {isLoading && (
             <>
@@ -558,6 +808,25 @@ function App() {
               {buildFlowMode && (
                 <span className="mode-description">
                   Get comprehensive step-by-step flow building guides
+                </span>
+              )}
+            </div>
+            
+            <div className="mode-toggle">
+              <label className="toggle-label">
+                <input
+                  type="checkbox"
+                  checked={enableWebSearch}
+                  onChange={(e) => setEnableWebSearch(e.target.checked)}
+                  disabled={isLoading}
+                />
+                <span className="toggle-text">
+                  🌐 Enable Web Search {enableWebSearch && '(Active)'}
+                </span>
+              </label>
+              {enableWebSearch && (
+                <span className="mode-description">
+                  Allow agent to search the internet if needed
                 </span>
               )}
             </div>

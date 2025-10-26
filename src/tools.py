@@ -1107,8 +1107,12 @@ def _search_with_perplexity(query: str) -> str:
 
 
 # Create tool wrappers with langchain decorators only when needed
-def get_all_tools():
-    """Get all tools as langchain tools with lazy import."""
+def get_all_tools(enable_web_search: bool = False):
+    """Get all tools as langchain tools with lazy import.
+    
+    Args:
+        enable_web_search: Whether to include web search tool in the available tools
+    """
     from langchain.tools import tool
     
     @tool
@@ -1207,7 +1211,8 @@ def get_all_tools():
             context (str): Type of code - 'api_call', 'data_transform', or 'general'"""
         return get_code_generation_guidelines(context)
     
-    return [
+    # Base tools that are always available
+    base_tools = [
         check_activepieces_tool,
         list_piece_actions_and_triggers_tool,
         list_action_inputs_tool,
@@ -1217,9 +1222,14 @@ def get_all_tools():
         search_actions_by_keyword_tool,
         search_triggers_by_keyword_tool,
         search_activepieces_docs_tool,
-        web_search_tool,
         get_code_generation_guidelines_tool,
     ]
+    
+    # Conditionally add web search tool
+    if enable_web_search:
+        base_tools.append(web_search_tool)
+    
+    return base_tools
 
 
 # Export all tools (for backward compatibility, lazy)

@@ -13,6 +13,7 @@ import logging
 from queue import Queue
 from threading import Thread
 from typing import Any, Dict, Optional
+import time
 
 from src.agent import get_agent, clear_agent_cache
 from src.general_responder import generate_general_response
@@ -70,6 +71,7 @@ class ChatRequest(BaseModel):
     message: str
     session_id: Optional[str] = None
     build_flow_mode: Optional[bool] = False
+    enable_web_search: Optional[bool] = False
     primary_model: Optional[str] = "gpt-5-mini"
     secondary_model: Optional[str] = None
     use_dual_models: Optional[bool] = False
@@ -124,6 +126,9 @@ class StatusCallbackHandler(BaseCallbackHandler):
         self.status_queue = status_queue
         self.cancellation_event = cancellation_event
         self.cancellation_logged = False
+        self.action_counter = 0
+        self.action_start_times = {}  # Track start times for each action
+        self.tool_start_time = None
     
     def _check_cancellation(self):
         """Check if the request has been cancelled and raise exception if so."""
@@ -139,26 +144,80 @@ class StatusCallbackHandler(BaseCallbackHandler):
             # Check for cancellation before tool execution
             self._check_cancellation()
             
+            self.action_counter += 1
             tool_name = action.tool
             tool_input = action.tool_input
             
-            # Map tool names to friendly status messages
-            status_messages = {
-                "check_activepieces_tool": "🔍 Checking ActivePieces database...",
-                "search_activepieces_docs_tool": "📚 Searching knowledge base...",
-                "web_search_tool": "🌐 Searching the web...",
-                "get_code_generation_guidelines_tool": "📝 Getting code guidelines..."
+            # Track start time for this action
+            self.action_start_times[self.action_counter] = time.time()
+            
+            # Map tool names to friendly action messages
+            action_messages = {
+                "check_activepieces_tool": {
+                    "icon": "🔍",
+                    "action": "Checking ActivePieces database",
+                    "detail": self._format_tool_input(tool_input, "query")
+                },
+                "search_activepieces_docs_tool": {
+                    "icon": "📚",
+                    "action": "Searching knowledge base",
+                    "detail": self._format_tool_input(tool_input, "query")
+                },
+                "web_search_tool": {
+                    "icon": "🌐",
+                    "action": "Searching the web",
+                    "detail": self._format_tool_input(tool_input, "query")
+                },
+                "get_code_generation_guidelines_tool": {
+                    "icon": "📝",
+                    "action": "Getting code generation guidelines",
+                    "detail": None
+                }
             }
             
-            status = status_messages.get(tool_name, f"⚙️ Using {tool_name}...")
+            action_info = action_messages.get(tool_name, {
+                "icon": "⚙️",
+                "action": f"Using {tool_name}",
+                "detail": None
+            })
+            
+            # Send detailed action log
+            self.status_queue.put({
+                "type": "action_log",
+                "step": self.action_counter,
+                "icon": action_info["icon"],
+                "action": action_info["action"],
+                "detail": action_info["detail"],
+                "tool": tool_name,
+                "status": "started",
+                "start_time": self.action_start_times[self.action_counter]
+            })
+            
+            # Also update current status for legacy support
+            status = f"{action_info['icon']} {action_info['action']}..."
             self.status_queue.put({"type": "status", "message": status, "tool": tool_name})
         except CancellationException:
             raise  # Re-raise to stop execution
+    
+    def _format_tool_input(self, tool_input: Any, key: str) -> Optional[str]:
+        """Format tool input for display."""
+        try:
+            if isinstance(tool_input, dict):
+                value = tool_input.get(key, "")
+                if value and isinstance(value, str):
+                    # Truncate long queries
+                    return value[:100] + "..." if len(value) > 100 else value
+            elif isinstance(tool_input, str):
+                return tool_input[:100] + "..." if len(tool_input) > 100 else tool_input
+        except Exception:
+            pass
+        return None
     
     def on_tool_start(self, serialized: Dict[str, Any], input_str: str, **kwargs) -> None:
         """Called when tool starts."""
         try:
             self._check_cancellation()
+            self.tool_start_time = time.time()
         except CancellationException:
             raise
     
@@ -166,6 +225,18 @@ class StatusCallbackHandler(BaseCallbackHandler):
         """Called when a tool finishes."""
         try:
             self._check_cancellation()
+            
+            # Calculate duration and update the action log
+            if self.action_counter in self.action_start_times:
+                duration = time.time() - self.action_start_times[self.action_counter]
+                self.status_queue.put({
+                    "type": "action_log_update",
+                    "step": self.action_counter,
+                    "duration": duration,
+                    "status": "completed"
+                })
+            
+            # Just update status, don't log completion
             self.status_queue.put({"type": "status", "message": "💭 Thinking...", "tool": None})
         except CancellationException:
             raise
@@ -174,13 +245,54 @@ class StatusCallbackHandler(BaseCallbackHandler):
         """Called when LLM starts."""
         try:
             self._check_cancellation()
+            
+            # Log LLM reasoning
+            reasoning_step = self.action_counter + 0.5
+            self.action_start_times[reasoning_step] = time.time()
+            self.status_queue.put({
+                "type": "action_log",
+                "step": reasoning_step,
+                "icon": "🤔",
+                "action": "Analyzing and reasoning",
+                "detail": None,
+                "tool": None,
+                "status": "thinking",
+                "start_time": self.action_start_times[reasoning_step]
+            })
         except CancellationException:
             raise
+    
+    def on_llm_end(self, response: Any, **kwargs) -> None:
+        """Called when LLM finishes."""
+        try:
+            reasoning_step = self.action_counter + 0.5
+            if reasoning_step in self.action_start_times:
+                duration = time.time() - self.action_start_times[reasoning_step]
+                self.status_queue.put({
+                    "type": "action_log_update",
+                    "step": reasoning_step,
+                    "duration": duration,
+                    "status": "completed"
+                })
+        except Exception:
+            pass  # Ignore errors
     
     def on_agent_finish(self, finish: Any, **kwargs) -> None:
         """Called when agent finishes."""
         try:
             if not self.cancellation_event.is_set():
+                finish_step = self.action_counter + 1
+                self.action_start_times[finish_step] = time.time()
+                self.status_queue.put({
+                    "type": "action_log",
+                    "step": finish_step,
+                    "icon": "✨",
+                    "action": "Finalizing response",
+                    "detail": None,
+                    "tool": None,
+                    "status": "finalizing",
+                    "start_time": self.action_start_times[finish_step]
+                })
                 self.status_queue.put({"type": "status", "message": "✨ Finalizing response...", "tool": None})
         except Exception:
             pass  # Ignore errors during finish
@@ -254,7 +366,7 @@ async def chat(request: ChatRequest):
                 print(f"{'='*60}\n")
                 log_interaction(user_message, assistant_reply, session_id=session_id)
                 return {"reply": assistant_reply}
-        agent = get_agent(session_id=session_id)
+        agent = get_agent(session_id=session_id, enable_web_search=request.enable_web_search)
         result = agent.invoke({"input": user_message})
         assistant_reply = result.get("output", "I apologize, but I couldn't generate a response.")
         
@@ -285,6 +397,7 @@ async def chat_stream(request: ChatRequest):
     user_message = request.message.strip()
     user_session_id = request.session_id  # Capture session_id from request
     build_flow_mode = request.build_flow_mode  # Capture build_flow_mode from request
+    enable_web_search = request.enable_web_search  # Capture enable_web_search from request
     
     # If Build Flow Mode is enabled, ALWAYS use the flow builder (skip general responder)
     # Only check if it's an ActivePieces query if Build Flow Mode is OFF
@@ -384,8 +497,21 @@ async def chat_stream(request: ChatRequest):
                 if build_flow_mode:
                     from src.flow_builder import build_flow
 
+                    # Create a callback to emit logs
+                    def flow_status_callback(log_data):
+                        status_queue.put(log_data)
+                    
+                    # Send initial log
+                    flow_status_callback({
+                        "type": "action_log",
+                        "step": 0,
+                        "icon": "🚀",
+                        "action": "Starting Flow Builder",
+                        "detail": None,
+                        "tool": None,
+                        "status": "started"
+                    })
                     status_queue.put({"type": "status", "message": "🚀 Starting Flow Builder...", "tool": None})
-                    status_queue.put({"type": "status", "message": "🔍 Analyzing your flow request...", "tool": None})
 
                     contextual_request = user_message
                     if user_session_id:
@@ -406,12 +532,14 @@ async def chat_stream(request: ChatRequest):
                                 f"Latest user request: {user_message}\n"
                                 "Provide an updated or additional flow guide that respects the ongoing context."
                             )
-
+                    
                     flow_result = build_flow(
                         contextual_request,
                         primary_model=primary_model,
                         secondary_model=secondary_model,
-                        use_dual_models=use_dual_models
+                        use_dual_models=use_dual_models,
+                        enable_web_search=enable_web_search,
+                        status_callback=flow_status_callback
                     )
                     assistant_reply = flow_result.get("guide", "I apologize, but I couldn't generate a flow guide.")
 
@@ -425,11 +553,32 @@ async def chat_stream(request: ChatRequest):
 
                 else:
                     callback = StatusCallbackHandler(status_queue, cancellation_event)
+                    
+                    # Initial action log
+                    status_queue.put({
+                        "type": "action_log",
+                        "step": 0,
+                        "icon": "🚀",
+                        "action": "Starting agent",
+                        "detail": None,
+                        "tool": None,
+                        "status": "started"
+                    })
                     status_queue.put({"type": "status", "message": "🚀 Starting...", "tool": None})
+                    
+                    status_queue.put({
+                        "type": "action_log",
+                        "step": 0.5,
+                        "icon": "🤖",
+                        "action": "Processing your query",
+                        "detail": user_message[:80] + "..." if len(user_message) > 80 else user_message,
+                        "tool": None,
+                        "status": "processing"
+                    })
                     status_queue.put({"type": "status", "message": "🤖 Processing query...", "tool": None})
 
                     logger.info("Getting agent instance...")
-                    agent = get_agent(session_id=user_session_id)
+                    agent = get_agent(session_id=user_session_id, enable_web_search=enable_web_search)
                     
                     logger.info("Invoking agent with message...")
                     result = agent.invoke({"input": user_message}, config={"callbacks": [callback]})

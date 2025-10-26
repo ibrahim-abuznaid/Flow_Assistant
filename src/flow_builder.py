@@ -23,6 +23,7 @@ Features:
 """
 import os
 import json
+import time
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from typing import Dict, Any, Optional, List
@@ -60,17 +61,41 @@ class FlowBuilder:
     3. Build: Generate comprehensive step-by-step flow guide
     """
     
-    def __init__(self, model: str = "gpt-5-mini"):
+    def __init__(self, model: str = "gpt-5-mini", status_callback=None, enable_web_search: bool = False):
         """
         Initialize the flow builder with GPT-5 model.
         
         Args:
             model: Model to use ('gpt-5', 'gpt-5-mini', or 'gpt-5-nano')
+            status_callback: Optional callback function to emit status updates
+            enable_web_search: Whether to allow web search for external documentation
         """
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.model = model
-        print(f"✓ Flow Builder initialized with model: {model}")
+        self.status_callback = status_callback
+        self.enable_web_search = enable_web_search
+        self.action_counter = 0
+        print(f"✓ Flow Builder initialized with model: {model}, web search: {enable_web_search}")
         self._fast_mode = os.getenv("FLOW_BUILDER_FAST_MODE", "true").lower() in {"1", "true", "yes"}
+    
+    def _emit_action_log(self, icon: str, action: str, detail: Optional[str] = None, status: str = "started", duration: Optional[float] = None):
+        """Emit an action log if callback is available."""
+        if self.status_callback:
+            self.action_counter += 1
+            log_data = {
+                "type": "action_log",
+                "step": self.action_counter,
+                "icon": icon,
+                "action": action,
+                "detail": detail,
+                "tool": None,
+                "status": status
+            }
+            if duration is not None:
+                log_data["duration"] = duration
+            if status == "started":
+                log_data["start_time"] = time.time()
+            self.status_callback(log_data)
 
     @staticmethod
     def _extract_keywords(text: str, max_words: int = 4) -> str:
@@ -327,8 +352,11 @@ class FlowBuilder:
             return []
 
     @staticmethod
-    @lru_cache(maxsize=1)
-    def _latest_http_request_docs() -> str:
+    def _latest_http_request_docs(enable_web_search: bool = False) -> str:
+        """Get HTTP Request documentation, optionally from web search."""
+        if not enable_web_search:
+            return "Web search is disabled. For the latest documentation, enable web search or refer to the ActivePieces documentation directly."
+        
         try:
             return web_search("ActivePieces HTTP Request piece latest documentation")
         except Exception as exc:
@@ -470,6 +498,9 @@ class FlowBuilder:
         Returns:
             Dictionary with flow analysis including goal, trigger type, actions, complexity, and confidence
         """
+        start_time = time.time()
+        self._emit_action_log("🧠", "Analyzing flow request", user_request[:80] + "..." if len(user_request) > 80 else user_request, "analyzing")
+        
         analysis_prompt = f"""You are an expert workflow automation analyst for ActivePieces, a powerful workflow automation platform.
 
 IMPORTANT: This analysis is for building automation workflows in ActivePieces platform - a visual workflow builder where users connect different services and applications.
@@ -556,6 +587,9 @@ Now analyze the user's request above."""
             print(f"Complexity: {analysis.get('complexity', 'Unknown')}")
             print(f"{'='*60}\n")
             
+            duration = time.time() - start_time
+            self._emit_action_log("✅", "Analysis complete", f"Goal: {analysis.get('flow_goal', '')[:60]}...", "completed", duration)
+            
             return analysis
             
         except Exception as e:
@@ -569,6 +603,9 @@ Now analyze the user's request above."""
     
     def search_flow_components(self, analysis: Dict[str, Any]) -> Dict[str, Any]:
         """Search for the pieces, triggers, and actions needed for the flow."""
+        
+        start_time = time.time()
+        self._emit_action_log("🔎", "Searching ActivePieces database", "Finding triggers, actions, and pieces", "searching")
 
         components: Dict[str, Any] = {
             "trigger": None,
@@ -609,6 +646,7 @@ Now analyze the user's request above."""
 
         def perform_vector_search() -> List[str]:
             try:
+                self._emit_action_log("📚", "Searching knowledge base", "Looking for relevant workflow documentation", "searching")
                 vector_store = get_vector_store()
                 search_query = " ".join(
                     filter(
@@ -757,6 +795,9 @@ Now analyze the user's request above."""
 
         components["knowledge_context"] = resolved.get(("knowledge_context", 0)) or []
         
+        duration = time.time() - start_time
+        self._emit_action_log("✅", "Database search complete", f"Found {len(components.get('actions', []))} actions, {len(components.get('trigger_matches', []))} triggers", "completed", duration)
+        
         return components
     
     def build_comprehensive_plan(
@@ -778,6 +819,9 @@ Now analyze the user's request above."""
         Returns:
             Comprehensive flow building guide
         """
+        start_time = time.time()
+        self._emit_action_log("🏗️", "Building comprehensive flow guide", "Generating step-by-step instructions with AI", "building")
+        
         # Prepare context for the guide generator
         context_parts: List[str] = [
             f"""
@@ -931,7 +975,7 @@ FOUND COMPONENTS:
                     continue
                 if "✗" not in http_reference:
                     break
-            http_docs_update = self._latest_http_request_docs()
+            http_docs_update = self._latest_http_request_docs(enable_web_search=self.enable_web_search)
 
         if http_reference:
             context_parts.append(
@@ -1041,8 +1085,8 @@ Make this the MOST COMPREHENSIVE ActivePieces flow guide possible - the user sho
 """
 
         try:
-            # Use web search if we have missing components or need more details
-            if components.get("missing") or analysis.get("confidence") == "low":
+            # Use web search if enabled and we have missing components or need more details
+            if self.enable_web_search and (components.get("missing") or analysis.get("confidence") == "low"):
                 search_results = self._search_for_missing_info(analysis, components)
                 planning_prompt += f"\n\nADDITIONAL RESEARCH FROM WEB:\n{search_results}\n"
             
@@ -1087,6 +1131,9 @@ Make this the MOST COMPREHENSIVE ActivePieces flow guide possible - the user sho
             print(f"Length: {len(comprehensive_guide)} characters")
             print(f"{'='*60}\n")
             
+            duration = time.time() - start_time
+            self._emit_action_log("✨", "Flow guide completed", f"Generated {len(comprehensive_guide)} character guide", "completed", duration)
+            
             return comprehensive_guide
             
         except Exception as e:
@@ -1095,6 +1142,10 @@ Make this the MOST COMPREHENSIVE ActivePieces flow guide possible - the user sho
     
     def _search_for_missing_info(self, analysis: Dict[str, Any], components: Dict[str, Any]) -> str:
         """Search online for missing information about the flow."""
+        # Check if web search is enabled
+        if not self.enable_web_search:
+            return "Web search is disabled. Enable it to search for additional information online."
+        
         search_queries = []
         
         # Build search queries for missing pieces
@@ -1104,6 +1155,9 @@ Make this the MOST COMPREHENSIVE ActivePieces flow guide possible - the user sho
         # Add general search for the flow type
         if analysis.get("flow_goal"):
             search_queries.append(f"How to build {analysis['flow_goal']} workflow in ActivePieces")
+        
+        if search_queries:
+            self._emit_action_log("🌐", "Searching web for additional info", f"Looking for {len(search_queries)} queries", "searching")
         
         search_results = []
         for query in search_queries[:2]:  # Limit to 2 searches
@@ -1174,7 +1228,9 @@ def build_flow(
     user_answers: Optional[str] = None,
     primary_model: str = "gpt-5-mini",
     secondary_model: Optional[str] = None,
-    use_dual_models: bool = False
+    use_dual_models: bool = False,
+    enable_web_search: bool = False,
+    status_callback = None
 ) -> Dict[str, Any]:
     """
     Main function to build a comprehensive ActivePieces flow guide using the ActivePieces database.
@@ -1194,6 +1250,8 @@ def build_flow(
         primary_model: Primary model to use (default: gpt-5-mini)
         secondary_model: Optional secondary model for dual-model mode
         use_dual_models: Whether to use dual models (one for analysis, one for building)
+        enable_web_search: Whether to allow web search for external documentation
+        status_callback: Optional callback function to emit status updates
         
     Returns:
         Dictionary with ActivePieces flow guide and metadata:
@@ -1203,7 +1261,7 @@ def build_flow(
         - models_used: Information about which models were used
     """
     # Create builder with primary model
-    builder = FlowBuilder(model=primary_model)
+    builder = FlowBuilder(model=primary_model, status_callback=status_callback, enable_web_search=enable_web_search)
     
     # Step 1: Analyze the request
     analysis = builder.analyze_flow_request(user_request)
@@ -1215,7 +1273,7 @@ def build_flow(
     # If dual models enabled and secondary model provided, create a second builder for comprehensive planning
     if use_dual_models and secondary_model:
         print(f"🔄 Using dual models: {primary_model} for analysis, {secondary_model} for planning")
-        planning_builder = FlowBuilder(model=secondary_model)
+        planning_builder = FlowBuilder(model=secondary_model, status_callback=status_callback, enable_web_search=enable_web_search)
         comprehensive_guide = planning_builder.build_comprehensive_plan(
             user_request, 
             analysis, 
