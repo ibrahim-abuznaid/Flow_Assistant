@@ -136,11 +136,6 @@ const Message = ({ msg, idx, buildFlowMode, actionLogs, isLatestAssistant, activ
         {msg.sender === 'user' ? '👤' : buildFlowMode && msg.sender === 'assistant' ? '🔧' : '🤖'}
       </div>
       <div className="message-content">
-        {buildFlowMode && msg.sender === 'assistant' && (
-          <div className="flow-guide-badge">
-            📋 Build Flow Guide
-          </div>
-        )}
         {/* Show action logs for assistant messages - ABOVE the response text */}
         {msg.sender === 'assistant' && actionLogs && (
           <CollapsibleActionLogs 
@@ -150,36 +145,43 @@ const Message = ({ msg, idx, buildFlowMode, actionLogs, isLatestAssistant, activ
             onToggle={onActiveLogsToggle}
           />
         )}
-        <div className="message-text">
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            components={{
-              code({ node, inline, className, children, ...props }) {
-                const match = /language-(\w+)/.exec(className || '')
-                return !inline && match ? (
-                  <CodeBlock language={match[1]}>
-                    {children}
-                  </CodeBlock>
-                ) : (
-                  <code className={className} {...props}>
-                    {children}
-                  </code>
-                )
-              }
-            }}
-          >
-            {displayText}
-          </ReactMarkdown>
+        <div className="message-bubble">
+          {buildFlowMode && msg.sender === 'assistant' && (
+            <div className="flow-guide-badge">
+              📋 Build Flow Guide
+            </div>
+          )}
+          <div className="message-text">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                code({ node, inline, className, children, ...props }) {
+                  const match = /language-(\w+)/.exec(className || '')
+                  return !inline && match ? (
+                    <CodeBlock language={match[1]}>
+                      {children}
+                    </CodeBlock>
+                  ) : (
+                    <code className={className} {...props}>
+                      {children}
+                    </code>
+                  )
+                }
+              }}
+            >
+              {displayText}
+            </ReactMarkdown>
+          </div>
+          {needsExpand && (
+            <button 
+              onClick={toggleExpand} 
+              className="expand-button"
+              title={isExpanded ? 'Show less' : 'Show more'}
+            >
+              {isExpanded ? '▲ Show Less' : '▼ Show More'}
+            </button>
+          )}
         </div>
-        {needsExpand && (
-          <button 
-            onClick={toggleExpand} 
-            className="expand-button"
-            title={isExpanded ? 'Show less' : 'Show more'}
-          >
-            {isExpanded ? '▲ Show Less' : '▼ Show More'}
-          </button>
-        )}
       </div>
     </div>
   )
@@ -212,6 +214,7 @@ function App() {
   const [primaryModel, setPrimaryModel] = useState('gpt-5-mini')
   const [secondaryModel, setSecondaryModel] = useState('gpt-5')
   const [useDualModels, setUseDualModels] = useState(false)
+  const [flowBuilderVersion, setFlowBuilderVersion] = useState(2) // V2 is default (concise)
   const [streamingContent, setStreamingContent] = useState('') // Content being streamed
   const [isStreaming, setIsStreaming] = useState(false) // Whether we're currently streaming
   const messagesEndRef = useRef(null)
@@ -366,7 +369,8 @@ function App() {
           enable_web_search: enableWebSearch,
           primary_model: primaryModel,
           secondary_model: useDualModels ? secondaryModel : null,
-          use_dual_models: useDualModels
+          use_dual_models: useDualModels,
+          flow_builder_version: flowBuilderVersion
         }),
         signal: abortControllerRef.current.signal
       })
@@ -654,49 +658,203 @@ function App() {
 
   return (
     <div className="app">
-      <header className="header">
-        <div className="header-content">
-          <h1>🤖 Activepieces AI Assistant</h1>
-          <p className="subtitle">Your intelligent guide to workflow automation</p>
+      {/* Top Navigation Bar */}
+      <nav className="top-nav">
+        <div className="top-nav-left">
+          <div className="logo">
+            <span className="logo-icon">🤖</span>
+            <span>Activepieces AI</span>
+          </div>
           {stats && (
-            <div className="stats">
-              <span>{stats.total_pieces.toLocaleString()} Pieces</span>
-              <span>{stats.total_actions.toLocaleString()} Actions</span>
-              <span>{stats.total_triggers.toLocaleString()} Triggers</span>
+            <div className="stats-compact">
+              <div className="stat-item">
+                <span className="stat-icon">📦</span>
+                <span className="stat-value">{stats.total_pieces.toLocaleString()}</span>
+                <span>Pieces</span>
+              </div>
+              <div className="stat-item">
+                <span className="stat-icon">⚡</span>
+                <span className="stat-value">{stats.total_actions.toLocaleString()}</span>
+                <span>Actions</span>
+              </div>
+              <div className="stat-item">
+                <span className="stat-icon">🎯</span>
+                <span className="stat-value">{stats.total_triggers.toLocaleString()}</span>
+                <span>Triggers</span>
+              </div>
             </div>
           )}
         </div>
-        <div className="header-actions">
-          <button 
-            onClick={() => setShowSessions(!showSessions)} 
-            className="sessions-btn" 
-            title="View previous sessions"
-          >
-            📋 History ({previousSessions.length})
-          </button>
+        <div className="top-nav-right">
           <button 
             onClick={resetConversation} 
-            className="reset-btn" 
+            className="nav-btn new-session" 
             title="Start new session"
           >
-            🔄 New Session
+            <span>🔄</span>
+            <span>New Session</span>
           </button>
         </div>
-      </header>
+      </nav>
 
-      <div className="chat-container">
+      {/* Left Sidebar */}
+      <aside className="sidebar">
+        {/* Settings Section */}
+        <div className="sidebar-section">
+          <div className="section-title">⚙️ Settings</div>
+          
+          {/* Build Flow Mode */}
+          <div className="setting-item">
+            <div className="setting-toggle">
+              <input
+                type="checkbox"
+                checked={buildFlowMode}
+                onChange={(e) => setBuildFlowMode(e.target.checked)}
+                disabled={isLoading}
+              />
+              <span className="toggle-text">🔧 Build Flow Mode</span>
+            </div>
+            {buildFlowMode && (
+              <>
+                <div className="setting-label" style={{marginTop: '0.75rem'}}>Guide Style:</div>
+                <select 
+                  value={flowBuilderVersion} 
+                  onChange={(e) => setFlowBuilderVersion(Number(e.target.value))}
+                  disabled={isLoading}
+                  className="setting-select"
+                >
+                  <option value={2}>📝 Concise (V2)</option>
+                  <option value={1}>📚 Detailed (V1)</option>
+                </select>
+                <div className="setting-description">
+                  {flowBuilderVersion === 2 
+                    ? '⚡ Quick & structured steps' 
+                    : '📖 Comprehensive explanations'}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Web Search */}
+          <div className="setting-item">
+            <div className="setting-toggle">
+              <input
+                type="checkbox"
+                checked={enableWebSearch}
+                onChange={(e) => setEnableWebSearch(e.target.checked)}
+                disabled={isLoading}
+              />
+              <span className="toggle-text">🌐 Web Search</span>
+            </div>
+          </div>
+
+          {/* Model Selection */}
+          <div className="setting-item">
+            <div className="setting-label">🤖 Primary Model</div>
+            <select 
+              value={primaryModel} 
+              onChange={(e) => setPrimaryModel(e.target.value)}
+              disabled={isLoading}
+              className="setting-select"
+            >
+              {availableModels.map(model => (
+                <option key={model} value={model}>{model}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Dual Models */}
+          <div className="setting-item">
+            <div className="setting-toggle">
+              <input
+                type="checkbox"
+                checked={useDualModels}
+                onChange={(e) => setUseDualModels(e.target.checked)}
+                disabled={isLoading}
+              />
+              <span className="toggle-text">🔀 Use 2 Models</span>
+            </div>
+            {useDualModels && (
+              <>
+                <div className="setting-label" style={{marginTop: '0.75rem'}}>Secondary Model:</div>
+                <select 
+                  value={secondaryModel} 
+                  onChange={(e) => setSecondaryModel(e.target.value)}
+                  disabled={isLoading}
+                  className="setting-select"
+                >
+                  {availableModels.map(model => (
+                    <option key={model} value={model}>{model}</option>
+                  ))}
+                </select>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Session History */}
+        <div className="sidebar-section" style={{flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0}}>
+          <div className="section-title">📋 History ({previousSessions.length})</div>
+          <div className="sessions-container">
+            {previousSessions.length === 0 ? (
+              <p className="no-sessions">No previous sessions</p>
+            ) : (
+              previousSessions.map((session) => (
+                <div key={session.session_id} className="session-item">
+                  <div className="session-info" onClick={() => loadSession(session.session_id)}>
+                    <div className="session-preview">{session.preview}...</div>
+                    <div className="session-meta">
+                      <span>{session.message_count} msgs</span>
+                      <span>{new Date(session.updated_at).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      deleteSession(session.session_id)
+                    }}
+                    className="delete-session-btn"
+                    title="Delete session"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </aside>
+
+      {/* Main Chat Area */}
+      <main className="chat-main">
         <div className="messages">
           {messages.length === 0 && (
             <div className="welcome-message">
-              <h2>👋 Welcome!</h2>
-              <p>I'm your Activepieces AI assistant. I can help you with:</p>
-              <ul>
-                <li>Finding integrations, actions, and triggers</li>
-                <li>Building workflows and automations</li>
-                <li>Understanding Activepieces features</li>
-                <li>Troubleshooting automation challenges</li>
-              </ul>
-              <p className="prompt">Ask me anything about Activepieces!</p>
+              <div className="welcome-icon">🤖</div>
+              <h2>Welcome to Activepieces AI Assistant</h2>
+              <p>Your intelligent guide to workflow automation. Let's build something amazing together!</p>
+              <div className="welcome-features">
+                <div className="feature-card">
+                  <div className="feature-icon">🔍</div>
+                  <div className="feature-title">Find Integrations</div>
+                  <div className="feature-desc">Discover from 450+ pieces and 2,890+ actions</div>
+                </div>
+                <div className="feature-card">
+                  <div className="feature-icon">🔧</div>
+                  <div className="feature-title">Build Workflows</div>
+                  <div className="feature-desc">Create automated flows with expert guidance</div>
+                </div>
+                <div className="feature-card">
+                  <div className="feature-icon">💡</div>
+                  <div className="feature-title">Get Insights</div>
+                  <div className="feature-desc">Understand features and best practices</div>
+                </div>
+                <div className="feature-card">
+                  <div className="feature-icon">🛠️</div>
+                  <div className="feature-title">Troubleshoot</div>
+                  <div className="feature-desc">Solve automation challenges quickly</div>
+                </div>
+              </div>
             </div>
           )}
 
@@ -857,106 +1015,14 @@ function App() {
         </div>
 
         <div className="input-area">
-          <div className="input-controls">
-            <div className="mode-toggle">
-              <label className="toggle-label">
-                <input
-                  type="checkbox"
-                  checked={buildFlowMode}
-                  onChange={(e) => setBuildFlowMode(e.target.checked)}
-                  disabled={isLoading}
-                />
-                <span className="toggle-text">
-                  🔧 Build Flow Mode {buildFlowMode && '(Active)'}
-                </span>
-              </label>
-              {buildFlowMode && (
-                <span className="mode-description">
-                  Get comprehensive step-by-step flow building guides
-                </span>
-              )}
-            </div>
-            
-            <div className="mode-toggle">
-              <label className="toggle-label">
-                <input
-                  type="checkbox"
-                  checked={enableWebSearch}
-                  onChange={(e) => setEnableWebSearch(e.target.checked)}
-                  disabled={isLoading}
-                />
-                <span className="toggle-text">
-                  🌐 Enable Web Search {enableWebSearch && '(Active)'}
-                </span>
-              </label>
-              {enableWebSearch && (
-                <span className="mode-description">
-                  Allow agent to search the internet if needed
-                </span>
-              )}
-            </div>
-            
-            <div className="model-selection">
-              <div className="model-select-group">
-                <label className="model-label">
-                  🤖 Primary Model:
-                  <select 
-                    value={primaryModel} 
-                    onChange={(e) => setPrimaryModel(e.target.value)}
-                    disabled={isLoading}
-                    className="model-select"
-                  >
-                    {availableModels.map(model => (
-                      <option key={model} value={model}>{model}</option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              
-              <div className="dual-model-toggle">
-                <label className="toggle-label">
-                  <input
-                    type="checkbox"
-                    checked={useDualModels}
-                    onChange={(e) => setUseDualModels(e.target.checked)}
-                    disabled={isLoading}
-                  />
-                  <span className="toggle-text">
-                    🔀 Use 2 Models
-                  </span>
-                </label>
-              </div>
-              
-              {useDualModels && (
-                <div className="model-select-group secondary-model">
-                  <label className="model-label">
-                    🤖 Secondary Model:
-                    <select 
-                      value={secondaryModel} 
-                      onChange={(e) => setSecondaryModel(e.target.value)}
-                      disabled={isLoading}
-                      className="model-select"
-                    >
-                      {availableModels.map(model => (
-                        <option key={model} value={model}>{model}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <span className="dual-model-hint">
-                    Primary for analysis, Secondary for planning
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
-          <div className="input-box">
+          <div className="input-wrapper">
             <textarea
               id="chat-input"
               name="chatMessage"
               value={currentInput}
               onChange={(e) => setCurrentInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={buildFlowMode ? "Describe the flow you want to build..." : "Ask me about Activepieces... (Press Enter to send)"}
+              placeholder={buildFlowMode ? "Describe the flow you want to build..." : "Ask me anything about Activepieces... (Press Enter to send)"}
               disabled={isLoading}
               rows={1}
             />
@@ -969,44 +1035,7 @@ function App() {
             </button>
           </div>
         </div>
-      </div>
-
-      {/* Sessions Panel */}
-      {showSessions && (
-        <div className="sessions-panel">
-          <div className="sessions-header">
-            <h3>📋 Previous Sessions</h3>
-            <button onClick={() => setShowSessions(false)} className="close-btn">✕</button>
-          </div>
-          <div className="sessions-list">
-            {previousSessions.length === 0 ? (
-              <p className="no-sessions">No previous sessions</p>
-            ) : (
-              previousSessions.map((session) => (
-                <div key={session.session_id} className="session-item">
-                  <div className="session-info" onClick={() => loadSession(session.session_id)}>
-                    <div className="session-preview">{session.preview}...</div>
-                    <div className="session-meta">
-                      <span>{session.message_count} messages</span>
-                      <span>{new Date(session.updated_at).toLocaleString()}</span>
-                    </div>
-                  </div>
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      deleteSession(session.session_id)
-                    }}
-                    className="delete-session-btn"
-                    title="Delete session"
-                  >
-                    🗑️
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      )}
+      </main>
 
       {/* Session Viewer Modal */}
       {selectedSession && (
@@ -1026,9 +1055,6 @@ function App() {
                   return (
                     <div key={idx}>
                       <Message msg={messageData} idx={idx} buildFlowMode={false} />
-                      <div className="message-time-modal">
-                        {new Date(msg.timestamp).toLocaleString()}
-                      </div>
                     </div>
                   )
                 })}
@@ -1037,13 +1063,7 @@ function App() {
             <div className="modal-footer">
               <div className="modal-footer-info">
                 <span>Session ID: {selectedSession.session_id}</span>
-                <span>Total messages: {selectedSession.messages?.length || 0}</span>
-                <span>
-                  Last updated:{' '}
-                  {selectedSession.updated_at
-                    ? new Date(selectedSession.updated_at).toLocaleString()
-                    : 'Unknown'}
-                </span>
+                <span> • Total messages: {selectedSession.messages?.length || 0}</span>
               </div>
               <div className="modal-footer-actions">
                 <button onClick={closeSessionView} className="modal-cancel-btn">
@@ -1060,10 +1080,6 @@ function App() {
           </div>
         </div>
       )}
-
-      <footer className="footer">
-        <p>Powered by OpenAI, LangChain & FastAPI</p>
-      </footer>
     </div>
   )
 }

@@ -20,6 +20,14 @@ Features:
 - GPT-5 powered comprehensive planning
 - Adaptive model selection based on complexity
 - Context-aware guide generation for ActivePieces platform
+
+Version Support:
+- V1 (Comprehensive): Detailed, educational guides with full explanations (~2,000-5,000 words)
+- V2 (Concise): Structured, scannable guides with essential info (~500-1,500 words, default)
+  * V2 uses clear visual structure with emojis (🎯 trigger, ⚡ actions)
+  * Each step formatted as: Piece → Action → Configuration
+  * Organized with separators for better UI/UX
+  * Defaults to V2 for faster, more focused results
 """
 import os
 import json
@@ -850,6 +858,238 @@ Now analyze the user's request above."""
         
         return components
     
+    def build_comprehensive_plan_v2(
+        self, 
+        user_request: str, 
+        analysis: Dict[str, Any], 
+        components: Dict[str, Any],
+        user_answers: Optional[str] = None
+    ) -> str:
+        """
+        Build a concise, structured flow building plan (Version 2).
+        Focuses on clear step-by-step presentation with organized UI components.
+        
+        Args:
+            user_request: Original user request
+            analysis: Flow analysis
+            components: Found components
+            user_answers: Optional additional user information (currently unused)
+            
+        Returns:
+            Concise, structured flow building guide with organized steps
+        """
+        start_time = time.time()
+        self._emit_action_log("🏗️", "Building flow guide (v2)", "Creating concise, structured guide with organized steps", "started")
+        
+        # Prepare context with essential information only
+        context_parts: List[str] = [
+            f"USER REQUEST: {user_request}",
+            f"FLOW GOAL: {analysis.get('flow_goal', 'Unknown')}",
+            f"TRIGGER: {analysis.get('trigger_type', 'Unknown')}",
+            f"ACTIONS: {', '.join(analysis.get('actions_needed', []))}",
+        ]
+        
+        # Add trigger information
+        trigger_info = components.get("trigger")
+        if trigger_info and trigger_info.get("piece"):
+            trigger_piece = trigger_info["piece"]
+            context_parts.append(f"\nTRIGGER PIECE: {trigger_piece.get('displayName', 'Unknown')}")
+        
+        # Add action information with strategies
+        for idx, action_info in enumerate(components.get("actions", []), 1):
+            strategy = self._determine_action_strategy(action_info)
+            action_info["strategy"] = strategy
+            
+            piece_name = strategy.get("recommended_piece") or "Custom"
+            action_name = strategy.get("recommended_action") or action_info.get("action_description")
+            context_parts.append(f"\nACTION {idx}: {piece_name} → {action_name}")
+            
+            # Get input details if available
+            if strategy['status'] in {"native", "alternative"} and strategy.get("recommended_piece") and strategy.get("recommended_action"):
+                inputs = self._safe_action_inputs(strategy["recommended_piece"], strategy["recommended_action"])
+                action_info["inputs_reference"] = inputs
+                if inputs and not inputs.startswith("⚠️"):
+                    context_parts.append(f"  Inputs available: {len(inputs.splitlines())} configuration options")
+        
+        context = "\n".join(context_parts)
+        
+        # Create a focused prompt for v2
+        planning_prompt = f"""You are an expert ActivePieces workflow architect. Create a CONCISE, STRUCTURED guide for building this flow in ActivePieces.
+
+{context}
+
+IMPORTANT FORMATTING RULES:
+1. Keep the guide SHORT and FOCUSED - users want quick, actionable information
+2. Use clear visual structure with headers, tables, and organized sections
+3. Avoid long paragraphs - use bullet points and structured data
+4. Focus on the essential information needed to build the flow
+
+Create a guide with this EXACT structure:
+
+## 📋 Requirements
+[List ONLY if there are specific prerequisites - keep this section brief or omit if none]
+- Requirement 1
+- Requirement 2
+
+## 🔄 Flow Steps
+
+### 🎯 TRIGGER
+**Piece:** [Piece Name]
+**Trigger:** [Trigger Name]
+**Configuration:**
+- Key setting 1: [value/description]
+- Key setting 2: [value/description]
+- Key setting 3: [value/description]
+
+---
+
+### ⚡ STEP 2: [Action Name]
+**Piece:** [Piece Name]
+**Action:** [Action Name]
+**Configuration:**
+- Key setting 1: [value/description]
+- Key setting 2: [value/description]
+- Key setting 3: [value/description]
+
+---
+
+### ⚡ STEP 3: [Action Name]
+**Piece:** [Piece Name]
+**Action:** [Action Name]
+**Configuration:**
+- Key setting 1: [value/description]
+- Key setting 2: [value/description]
+
+[Continue for each step...]
+
+---
+
+## ✅ Testing
+1. Test the trigger
+2. Run the complete flow
+3. Verify outputs
+
+CRITICAL REQUIREMENTS:
+- Use the exact format above with clear separators (---) between steps
+- Each step must show: Piece name, Action name, and Configuration details
+- List only the MOST IMPORTANT configuration settings (3-5 max per step)
+- Use emojis for visual organization (🎯 for trigger, ⚡ for actions)
+- Keep descriptions concise - one line per setting
+- Focus on WHAT to configure, not lengthy explanations of WHY
+- If using AI pieces (Text AI, Utility AI, Image AI, Video AI), mention the model can be selected inside ActivePieces
+
+Make this guide scannable and easy to follow - users should be able to build the flow quickly by following this structured format."""
+
+        try:
+            complexity_level = (analysis.get("complexity") or "moderate").lower()
+            reasoning_effort = "low" if self._fast_mode else "medium"
+            verbosity_level = "low"  # v2 should be concise
+            model_choice = self.model
+            
+            # Generate the guide
+            generation_start = time.time()
+            self._emit_action_log("✨", "Generating concise guide", f"Using {model_choice} to create structured, organized flow guide", "started")
+            
+            comprehensive_guide = ""
+            chunk_count = 0
+            last_update_time = time.time()
+            update_interval = 0.5
+            
+            try:
+                last_streamed_chars = 0
+
+                def emit_streaming_update(force: bool = False):
+                    nonlocal last_update_time, last_streamed_chars
+                    current_time = time.time()
+                    if not force and current_time - last_update_time < update_interval:
+                        return
+
+                    new_text = comprehensive_guide[last_streamed_chars:]
+                    if not new_text:
+                        return
+
+                    elapsed = current_time - generation_start
+                    chars_so_far = len(comprehensive_guide)
+                    words_so_far = len(comprehensive_guide.split())
+
+                    if self.status_callback:
+                        self.status_callback({
+                            "type": "streaming_update",
+                            "step": self.action_counter,
+                            "content": new_text,
+                            "total_chars": chars_so_far,
+                            "total_words": words_so_far,
+                            "elapsed_time": elapsed,
+                            "status": "streaming"
+                        })
+
+                    last_streamed_chars = chars_so_far
+                    last_update_time = current_time
+
+                with self.client.responses.stream(
+                    model=model_choice,
+                    input=planning_prompt,
+                    reasoning={"effort": reasoning_effort},
+                    text={"verbosity": verbosity_level},
+                ) as stream:
+                    final_response = None
+
+                    for event in stream:
+                        event_type = getattr(event, "type", None)
+
+                        if event_type == "response.output_text.delta":
+                            chunk_text = getattr(event, "delta", "") or ""
+                            if not chunk_text:
+                                continue
+
+                            comprehensive_guide += chunk_text
+                            chunk_count += 1
+                            emit_streaming_update(force=False)
+
+                        elif event_type == "response.output_text.done":
+                            continue
+
+                        elif event_type == "response.completed":
+                            final_response = stream.get_final_response()
+
+                        elif event_type == "response.error":
+                            error_detail = getattr(event, "error", None)
+                            raise RuntimeError(f"Streaming error: {error_detail}")
+
+                    emit_streaming_update(force=True)
+
+                    if final_response and not comprehensive_guide:
+                        comprehensive_guide = (self._extract_output_text(final_response) or "").strip()
+                    elif final_response:
+                        final_text = self._extract_output_text(final_response)
+                        if final_text and len(final_text) > len(comprehensive_guide):
+                            comprehensive_guide = final_text
+
+                comprehensive_guide = comprehensive_guide.strip()
+                
+            except Exception as stream_error:
+                print(f"⚠️  Streaming failed, falling back to non-streaming: {stream_error}")
+                response = self.client.responses.create(
+                    model=model_choice,
+                    input=planning_prompt,
+                    reasoning={"effort": reasoning_effort},
+                    text={"verbosity": verbosity_level}
+                )
+                comprehensive_guide = response.output_text.strip()
+            
+            generation_duration = time.time() - generation_start
+            guide_words = len(comprehensive_guide.split())
+            self._emit_action_log("✅", "Guide generated", f"Created concise guide: {len(comprehensive_guide):,} chars, ~{guide_words:,} words", "completed", generation_duration)
+            
+            duration = time.time() - start_time
+            self._emit_action_log("🎉", "Flow guide complete (v2)!", f"Concise, structured guide ready • Total time: {duration:.1f}s", "completed", duration)
+            
+            return comprehensive_guide
+            
+        except Exception as e:
+            print(f"⚠️  Plan building error: {e}")
+            return self._create_basic_plan(user_request, analysis, components)
+
     def build_comprehensive_plan(
         self, 
         user_request: str, 
@@ -858,7 +1098,7 @@ Now analyze the user's request above."""
         user_answers: Optional[str] = None
     ) -> str:
         """
-        Build a comprehensive, step-by-step flow building plan.
+        Build a comprehensive, step-by-step flow building plan (Version 1 - Original).
         
         Args:
             user_request: Original user request
@@ -1455,7 +1695,8 @@ def build_flow(
     secondary_model: Optional[str] = None,
     use_dual_models: bool = False,
     enable_web_search: bool = False,
-    status_callback = None
+    status_callback = None,
+    version: int = 2
 ) -> Dict[str, Any]:
     """
     Main function to build a comprehensive ActivePieces flow guide using the ActivePieces database.
@@ -1477,6 +1718,7 @@ def build_flow(
         use_dual_models: Whether to use dual models (one for analysis, one for building)
         enable_web_search: Whether to allow web search for external documentation
         status_callback: Optional callback function to emit status updates
+        version: Guide version to use (1=comprehensive/detailed, 2=concise/structured, default: 2)
         
     Returns:
         Dictionary with ActivePieces flow guide and metadata:
@@ -1484,6 +1726,7 @@ def build_flow(
         - analysis: Flow analysis with complexity/confidence
         - components: Found ActivePieces pieces, actions, triggers
         - models_used: Information about which models were used
+        - version: Version number used
     """
     # Create builder with primary model
     builder = FlowBuilder(model=primary_model, status_callback=status_callback, enable_web_search=enable_web_search)
@@ -1494,25 +1737,48 @@ def build_flow(
     # Step 2: Search for components
     components = builder.search_flow_components(analysis)
     
-    # Step 3: Build comprehensive plan
-    # If dual models enabled and secondary model provided, create a second builder for comprehensive planning
-    if use_dual_models and secondary_model:
-        print(f"🔄 Using dual models: {primary_model} for analysis, {secondary_model} for planning")
-        planning_builder = FlowBuilder(model=secondary_model, status_callback=status_callback, enable_web_search=enable_web_search)
-        comprehensive_guide = planning_builder.build_comprehensive_plan(
-            user_request, 
-            analysis, 
-            components, 
-            user_answers
-        )
+    # Step 3: Build comprehensive plan (choose version)
+    # Determine which method to call based on version parameter
+    if version == 1:
+        # V1: Comprehensive, detailed guide
+        print(f"📖 Using Flow Builder V1 (Comprehensive/Detailed)")
+        if use_dual_models and secondary_model:
+            print(f"🔄 Using dual models: {primary_model} for analysis, {secondary_model} for planning")
+            planning_builder = FlowBuilder(model=secondary_model, status_callback=status_callback, enable_web_search=enable_web_search)
+            comprehensive_guide = planning_builder.build_comprehensive_plan(
+                user_request, 
+                analysis, 
+                components, 
+                user_answers
+            )
+        else:
+            print(f"🤖 Using single model: {primary_model}")
+            comprehensive_guide = builder.build_comprehensive_plan(
+                user_request, 
+                analysis, 
+                components, 
+                user_answers
+            )
     else:
-        print(f"🤖 Using single model: {primary_model}")
-        comprehensive_guide = builder.build_comprehensive_plan(
-            user_request, 
-            analysis, 
-            components, 
-            user_answers
-        )
+        # V2: Concise, structured guide (default)
+        print(f"📝 Using Flow Builder V2 (Concise/Structured)")
+        if use_dual_models and secondary_model:
+            print(f"🔄 Using dual models: {primary_model} for analysis, {secondary_model} for planning")
+            planning_builder = FlowBuilder(model=secondary_model, status_callback=status_callback, enable_web_search=enable_web_search)
+            comprehensive_guide = planning_builder.build_comprehensive_plan_v2(
+                user_request, 
+                analysis, 
+                components, 
+                user_answers
+            )
+        else:
+            print(f"🤖 Using single model: {primary_model}")
+            comprehensive_guide = builder.build_comprehensive_plan_v2(
+                user_request, 
+                analysis, 
+                components, 
+                user_answers
+            )
     
     return {
         "guide": comprehensive_guide,
@@ -1522,6 +1788,7 @@ def build_flow(
             "primary": primary_model,
             "secondary": secondary_model if use_dual_models else None,
             "dual_mode": use_dual_models
-        }
+        },
+        "version": version
     }
 
